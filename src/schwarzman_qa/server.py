@@ -5,21 +5,25 @@ import json
 import os
 import secrets
 import tempfile
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 import urllib.request
 
+from .access_control import WhatsAppAccessControl, access_control_from_env
 from .agents import answer_with_agents
 from .citations import public_citation_ref
+from .config import load_env
 from .retrieval import latest_file, load_index
+from .whatsapp import extract_messages, send_text, verify_signature, verify_webhook_token
 
 
-MAX_BODY_BYTES = 16_384
+MAX_BODY_BYTES = 131_072
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 API_TOKEN_ENV = "SCHWARZMAN_API_TOKEN"
@@ -31,6 +35,9 @@ class ServerState:
     index_path: Path
     index_data: dict[str, Any]
     default_top_k: int
+    whatsapp_access: WhatsAppAccessControl
+    processed_whatsapp_ids: set[str] = field(default_factory=set)
+    processed_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 def make_response(result: dict[str, Any], elapsed_ms: int, debug: bool = False) -> dict[str, Any]:
@@ -175,6 +182,13 @@ class QaRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_text_response(self, status: HTTPStatus, body: str) -> None:
+        self.send_response(status.value)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
     def require_api_auth(self) -> bool:
         if is_api_authorized(self.headers.get("Authorization", "")):
             return True
@@ -195,13 +209,30 @@ class QaRequestHandler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def do_GET(self) -> None:  # noqa: N802
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/webhooks/whatsapp":
+            challenge = verify_webhook_token(
+                parse_qs(parsed.query),
+                os.environ.get("WHATSAPP_VERIFY_TOKEN", "").strip(),
+            )
+            if challenge is None:
+                self.send_text_response(HTTPStatus.FORBIDDEN, "forbidden")
+                return
+            self.send_text_response(HTTPStatus.OK, challenge)
+            return
         if path in {"/", "/health"}:
             status, body = json_bytes(
                 {
                     "ok": True,
                     "service": "schwarzman-qa",
-                    "endpoints": ["GET /health", "POST /ask", "POST /ask/stream"],
+                    "endpoints": [
+                        "GET /health",
+                        "POST /ask",
+                        "POST /ask/stream",
+                        "GET /webhooks/whatsapp",
+                        "POST /webhooks/whatsapp",
+                    ],
                     "index_path": display_path(self.state.index_path, self.state.root),
                     "chunk_count": self.state.index_data.get("chunk_count", 0),
                 }
@@ -221,6 +252,9 @@ class QaRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path == "/webhooks/whatsapp":
+            self.handle_whatsapp_webhook()
+            return
         if path == "/ask/stream":
             if not self.require_api_auth():
                 return
@@ -275,6 +309,109 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             )
         self.send_json(status, body)
 
+    def handle_whatsapp_webhook(self) -> None:
+        try:
+            raw_body = self.read_raw_body()
+            if not verify_signature(
+                raw_body,
+                self.headers.get("X-Hub-Signature-256", ""),
+                os.environ.get("WHATSAPP_APP_SECRET", "").strip(),
+            ):
+                status, body = json_bytes({"ok": False, "error": "bad_signature"}, HTTPStatus.UNAUTHORIZED)
+                self.send_json(status, body)
+                return
+            payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+            messages = extract_messages(payload)
+        except Exception as exc:
+            status, body = json_bytes(
+                {"ok": False, "error": "bad_request", "detail": type(exc).__name__},
+                HTTPStatus.BAD_REQUEST,
+            )
+            self.send_json(status, body)
+            return
+
+        queued = 0
+        for message in messages:
+            message_key = message.message_id or f"{message.wa_id}:{hash(message.text)}"
+            with self.state.processed_lock:
+                if message_key in self.state.processed_whatsapp_ids:
+                    continue
+                self.state.processed_whatsapp_ids.add(message_key)
+                if len(self.state.processed_whatsapp_ids) > 1000:
+                    self.state.processed_whatsapp_ids = set(list(self.state.processed_whatsapp_ids)[-500:])
+            threading.Thread(target=self.process_whatsapp_message, args=(message,), daemon=True).start()
+            queued += 1
+
+        status, body = json_bytes({"ok": True, "queued": queued})
+        self.send_json(status, body)
+
+    def process_whatsapp_message(self, message: Any) -> None:
+        try:
+            access = self.state.whatsapp_access
+            text = message.text.strip()
+            decision = access.check(message.wa_id, message.phone_number)
+            if decision.status == "blocked":
+                send_text(
+                    message.wa_id,
+                    "This number is not approved for the Schwarzman resource bot.",
+                    reply_to_message_id=message.message_id,
+                )
+                return
+
+            invite_code = os.environ.get("WHATSAPP_INVITE_CODE", "").strip()
+            if invite_code and secrets.compare_digest(text, invite_code):
+                invite_decision = access.redeem_invite(
+                    text,
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                )
+                if invite_decision.allowed:
+                    send_text(
+                        message.wa_id,
+                        "You're approved. Ask me a question about the reviewed Schwarzman student resources.",
+                        reply_to_message_id=message.message_id,
+                    )
+                else:
+                    send_text(
+                        message.wa_id,
+                        "That invite code was not accepted. Please use the code posted in the student group.",
+                        reply_to_message_id=message.message_id,
+                    )
+                return
+
+            if not decision.allowed:
+                access.record_seen(message.wa_id, message.phone_number, profile_name=message.profile_name)
+                send_text(
+                    message.wa_id,
+                    "I don't have this WhatsApp number approved yet. Please DM the invite code posted in the student group.",
+                    reply_to_message_id=message.message_id,
+                )
+                return
+
+            if message.message_type != "text" or not text:
+                send_text(
+                    message.wa_id,
+                    "I can only answer text questions right now.",
+                    reply_to_message_id=message.message_id,
+                )
+                return
+
+            send_text(message.wa_id, "Got it - searching the reviewed resources now.", reply_to_message_id=message.message_id)
+            started = time.perf_counter()
+            result = answer_with_agents(
+                self.state.root,
+                text,
+                index_data=self.state.index_data,
+                top_k=self.state.default_top_k,
+            )
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            response = make_response(result, elapsed_ms)
+            answer = response.get("answer") or "I don't know from the downloaded student resources."
+            send_text(message.wa_id, str(answer))
+        except Exception as exc:
+            print(f"WhatsApp message handling failed: {type(exc).__name__}", flush=True)
+
     def handle_streaming_ask(self) -> None:
         try:
             request = self.read_json_body()
@@ -325,11 +462,7 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             )
 
     def read_json_body(self) -> dict[str, Any]:
-        raw_length = self.headers.get("Content-Length", "0")
-        length = int(raw_length)
-        if length > MAX_BODY_BYTES:
-            raise ValueError("request_body_too_large")
-        raw = self.rfile.read(length)
+        raw = self.read_raw_body()
         if not raw:
             return {}
         payload = json.loads(raw.decode("utf-8"))
@@ -337,15 +470,29 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             raise ValueError("json_object_required")
         return payload
 
+    def read_raw_body(self) -> bytes:
+        raw_length = self.headers.get("Content-Length", "0")
+        length = int(raw_length)
+        if length > MAX_BODY_BYTES:
+            raise ValueError("request_body_too_large")
+        return self.rfile.read(length)
+
 
 def run_server(root: Path, host: str, port: int, top_k: int = 6, index_path: Path | None = None) -> None:
     root = root.resolve()
+    load_env(root)
     if index_path is None:
         index_path = default_index_path(root)
     else:
         index_path = index_path.resolve()
     index_data = load_index(root, index_path)
-    state = ServerState(root=root, index_path=index_path, index_data=index_data, default_top_k=top_k)
+    state = ServerState(
+        root=root,
+        index_path=index_path,
+        index_data=index_data,
+        default_top_k=top_k,
+        whatsapp_access=access_control_from_env(root),
+    )
     server = ThreadingHTTPServer((host, port), QaRequestHandler)
     server.state = state  # type: ignore[attr-defined]
     print(

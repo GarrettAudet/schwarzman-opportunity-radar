@@ -206,6 +206,11 @@ Useful env vars:
 
 ```text
 WHATSAPP_INVITE_CODE=<code posted in the group>
+WHATSAPP_VERIFY_TOKEN=<random string pasted into Meta webhook setup>
+WHATSAPP_ACCESS_TOKEN=<Meta WhatsApp Cloud API access token>
+WHATSAPP_PHONE_NUMBER_ID=<Meta WhatsApp phone number ID>
+WHATSAPP_APP_SECRET=<optional Meta app secret for webhook signature checks>
+WHATSAPP_GRAPH_API_VERSION=v23.0
 WHATSAPP_ALLOWED_NUMBERS=<optional comma-separated phone allowlist>
 WHATSAPP_BLOCKED_NUMBERS=<optional comma-separated phone blocklist>
 WHATSAPP_ALLOWED_WA_IDS=<optional comma-separated WhatsApp ID allowlist>
@@ -221,6 +226,25 @@ python scripts\manage_whatsapp_access.py approve --root . --phone 15551234567 --
 python scripts\manage_whatsapp_access.py block --root . --phone 15551234567 --notes "Removed from group"
 python scripts\manage_whatsapp_access.py revoke --root . --phone 15551234567
 ```
+
+## WhatsApp Webhook
+
+After adding the WhatsApp env vars and redeploying Render, configure Meta's
+WhatsApp webhook with:
+
+```text
+Callback URL: https://schwarzmanqna.onrender.com/webhooks/whatsapp
+Verify token: the exact value of WHATSAPP_VERIFY_TOKEN
+```
+
+Subscribe to WhatsApp message webhooks. Incoming DMs follow this flow:
+
+1. Unknown users are asked for the invite code.
+2. A correct invite code approves and stores their WhatsApp identity.
+3. Approved users can ask questions.
+4. The bot sends a quick acknowledgement, calls the Q&A agent, then sends the
+   final cited answer.
+5. Blocked users are denied even if they enrolled earlier.
 
 ## Phase 5: Online Backend
 
