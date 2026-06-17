@@ -66,6 +66,13 @@ def json_bytes(payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> t
     return status.value, json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
+def display_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root)).replace("\\", "/")
+    except ValueError:
+        return str(path)
+
+
 def default_index_path(root: Path) -> Path:
     index_url = os.environ.get("SCHWARZMAN_INDEX_URL", "").strip()
     if index_url:
@@ -161,7 +168,7 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "service": "schwarzman-qa",
                     "endpoints": ["GET /health", "POST /ask"],
-                    "index_path": str(self.state.index_path.relative_to(self.state.root)).replace("\\", "/"),
+                    "index_path": display_path(self.state.index_path, self.state.root),
                     "chunk_count": self.state.index_data.get("chunk_count", 0),
                 }
             )
@@ -169,6 +176,14 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             return
         status, body = json_bytes({"ok": False, "error": "not_found"}, HTTPStatus.NOT_FOUND)
         self.send_json(status, body)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path
+        status = HTTPStatus.OK if path in {"/", "/health"} else HTTPStatus.NOT_FOUND
+        self.send_response(status.value)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
