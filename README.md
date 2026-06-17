@@ -175,6 +175,7 @@ For a real public URL, use a private GitHub repo connected to Render.
 This repo includes:
 
 - `render.yaml` - Render web service blueprint.
+- `requirements.txt` - compatibility file for Render's default Python build command.
 - `requirements-backend.txt` - backend build requirements.
 
 Important: the reviewed corpus index contains extracted student-resource text,
@@ -195,6 +196,13 @@ Render setup:
 7. Add `OPENROUTER_API_KEY` and `GITHUB_INDEX_TOKEN` in Render's environment
    variables.
 8. Test `https://<service>.onrender.com/health`.
+
+If you create a Web Service manually instead of using the blueprint, use:
+
+```text
+Build Command: python -m pip install -r requirements.txt
+Start Command: python scripts/serve_backend.py --root . --host 0.0.0.0
+```
 
 The older Rencai-only extractor is still available:
 
