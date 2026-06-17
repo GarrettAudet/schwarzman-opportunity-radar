@@ -19,6 +19,7 @@ from .access_control import WhatsAppAccessControl, access_control_from_env
 from .agents import answer_with_agents
 from .citations import public_citation_ref
 from .config import load_env
+from .policy import NOT_FOUND_TEXT, clean_visible_text, format_chat_answer
 from .retrieval import latest_file, load_index
 from .twilio_whatsapp import (
     extract_message as extract_twilio_message,
@@ -53,7 +54,7 @@ def make_response(result: dict[str, Any], elapsed_ms: int, debug: bool = False) 
         "ok": result.get("response_type") != "agent_error",
         "elapsed_ms": elapsed_ms,
         "response_type": result.get("response_type", ""),
-        "answer": result.get("final_answer", ""),
+        "answer": clean_visible_text(str(result.get("final_answer", ""))),
         "retrieval": {
             "top_score": result.get("retrieval", {}).get("top_score", 0),
             "sources": [
@@ -466,8 +467,8 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             )
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             response = make_response(result, elapsed_ms)
-            answer = response.get("answer") or "I don't know from the downloaded student resources."
-            send_twilio_text(message.from_address, str(answer), from_address=message.to_address)
+            answer = response.get("answer") or NOT_FOUND_TEXT
+            send_twilio_text(message.from_address, format_chat_answer(str(answer)), from_address=message.to_address)
         except Exception as exc:
             print(f"Twilio WhatsApp message handling failed: {type(exc).__name__}", flush=True)
 
@@ -533,8 +534,8 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             )
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             response = make_response(result, elapsed_ms)
-            answer = response.get("answer") or "I don't know from the downloaded student resources."
-            send_text(message.wa_id, str(answer))
+            answer = response.get("answer") or NOT_FOUND_TEXT
+            send_text(message.wa_id, format_chat_answer(str(answer)))
         except Exception as exc:
             print(f"WhatsApp message handling failed: {type(exc).__name__}", flush=True)
 

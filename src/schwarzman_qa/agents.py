@@ -10,7 +10,14 @@ from typing import Any, Callable
 from .config import answer_model, openrouter_api_key, review_model
 from .guardrails import GuardrailResult, classify_user_input
 from .openrouter_client import OpenRouterClient, parse_json_object
-from .policy import check_final_answer, format_answer_payload
+from .policy import (
+    NO_SOURCE_TEXT,
+    NOT_FOUND_TEXT,
+    OUT_OF_SCOPE_TEXT,
+    check_final_answer,
+    clean_evidence_quote,
+    format_answer_payload,
+)
 from .retrieval import load_index, retrieve
 
 
@@ -18,6 +25,79 @@ ANSWER_THRESHOLD = 0.72
 CLARIFY_THRESHOLD = 0.55
 EXTRACTIVE_FALLBACK_THRESHOLD = 15.0
 EventCallback = Callable[[str, dict[str, Any]], None]
+
+DOMAIN_SCOPE_TERMS = {
+    "blackboard",
+    "rencai",
+    "schwarzman",
+    "schwarzman scholars",
+    "schwarzman college",
+    "tsinghua",
+    "student guide",
+    "student resource",
+}
+
+RESOURCE_SCOPE_TERMS = {
+    "admission notice",
+    "airport",
+    "alipay",
+    "arrival",
+    "bank",
+    "career",
+    "campus",
+    "consulting",
+    "course",
+    "courses",
+    "degree",
+    "degree verification",
+    "dorm",
+    "employment",
+    "enrollment",
+    "family",
+    "finance",
+    "flight",
+    "form",
+    "forms",
+    "gmat",
+    "gre",
+    "health check",
+    "housing",
+    "insurance",
+    "internship",
+    "internship annotation",
+    "jw202",
+    "job",
+    "jobs",
+    "letter request",
+    "meal",
+    "medical",
+    "medication",
+    "orientation",
+    "packing",
+    "passport",
+    "permit",
+    "physical exam",
+    "pre-program",
+    "private equity",
+    "resource",
+    "residence permit",
+    "resume",
+    "scholarship resources",
+    "sim card",
+    "spouse",
+    "staying in china",
+    "stay permit",
+    "transcript",
+    "transcripts",
+    "transportation",
+    "travel to china",
+    "visa",
+    "vaccination",
+    "wechat",
+    "work in china",
+    "work authorization",
+    "x1",
+}
 
 
 def read_policy(root: Path) -> str:
@@ -45,7 +125,11 @@ def compact_results(results: list[dict[str, Any]], max_chars: int = 2200) -> lis
 
 
 def safe_not_found() -> str:
-    return "Answer:\nI don't know from the downloaded student resources.\n\nEvidence:\nNo reviewed source was strong enough to answer this."
+    return f"Answer:\n{NOT_FOUND_TEXT}\n\nEvidence:\n{NO_SOURCE_TEXT}"
+
+
+def out_of_scope() -> str:
+    return f"Answer:\n{OUT_OF_SCOPE_TEXT}\n\nEvidence:\n{NO_SOURCE_TEXT}"
 
 
 def safety_refusal() -> str:
@@ -53,7 +137,7 @@ def safety_refusal() -> str:
 
 
 def clean_quote(text: str, max_chars: int = 450) -> str:
-    return re.sub(r"\s+", " ", text).strip()[:max_chars].strip()
+    return clean_evidence_quote(text, max_chars=max_chars)
 
 
 def extractive_answer(results: list[dict[str, Any]], max_evidence: int = 3) -> str:
@@ -88,6 +172,23 @@ def should_not_found_without_llm(question: str) -> bool:
     future_years = [int(match) for match in re.findall(r"\b20\d{2}\b", lowered) if int(match) > current_year]
     asks_exact_timing = re.search(r"\b(deadline|date|timeline|when|exact|current|latest)\b", lowered)
     return bool(future_years and asks_exact_timing)
+
+
+def contains_scope_term(text: str, terms: set[str]) -> bool:
+    for term in terms:
+        pattern = r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])"
+        if re.search(pattern, text):
+            return True
+    return False
+
+
+def is_resource_scope_question(question: str, _results: list[dict[str, Any]], _top_score: float) -> bool:
+    lowered = question.lower()
+    if contains_scope_term(lowered, DOMAIN_SCOPE_TERMS):
+        return True
+    if contains_scope_term(lowered, RESOURCE_SCOPE_TERMS):
+        return True
+    return False
 
 
 def clarification_answer(question: str, results: list[dict[str, Any]]) -> str | None:
@@ -207,6 +308,9 @@ def answer_with_agents(
     if guard.blocked:
         emit("answer_ready", {"response_type": "safety_refusal"})
         return {**base, "response_type": "safety_refusal", "final_answer": safety_refusal()}
+    if not is_resource_scope_question(guard.normalized_text, results, top_score):
+        emit("answer_ready", {"response_type": "out_of_scope"})
+        return {**base, "response_type": "out_of_scope", "final_answer": out_of_scope()}
     if not results or top_score < CLARIFY_THRESHOLD:
         emit("answer_ready", {"response_type": "not_found"})
         return {**base, "response_type": "not_found", "final_answer": safe_not_found()}
@@ -364,7 +468,7 @@ Suspicious phrases: {guard.suspicious_phrases}
 
 Return a JSON object:
 {{
-  "response_type": "answer|clarification|not_found|safety_refusal",
+  "response_type": "answer|clarification|not_found|out_of_scope|safety_refusal",
   "answer": "plain answer with [1] style citations",
   "evidence": [
     {{"citation_ref": "exact retrieved citation_ref", "quote": "short exact quote", "supports_claim": "what it supports"}}
@@ -421,7 +525,7 @@ Return JSON:
 {{
   "allowed": true,
   "blocked_reasons": [],
-  "required_response_type": "answer|clarification|not_found|safety_refusal",
+  "required_response_type": "answer|clarification|not_found|out_of_scope|safety_refusal",
   "prompt_injection_handled": true,
   "citations_ok": true,
   "quotes_ok": true,
