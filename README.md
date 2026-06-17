@@ -1,0 +1,175 @@
+# Schwarzman Scholar Resources
+
+A small local toolkit for inventorying and saving authenticated Schwarzman/Rencai/Blackboard resources into a local reviewable corpus.
+
+It does not ask for credentials, run a backend, or upload data. The scan runs locally in the extension side panel using your existing browser session.
+
+## Load It
+
+1. Open Chrome and go to `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked**.
+4. Select this folder: `C:\repos\SchwarzmanScholarResources`.
+5. Open one of your Rencai or Blackboard tabs and make sure you are logged in.
+6. Click the extension icon, then click **Use Active Tab** and **Start Scan**.
+
+## Suggested Scans
+
+- **Blackboard**: use **Same host** scope with a higher max page count.
+- **Rencai / one section only**: use **URL prefix** scope, set **Scan method** to **Rendered active tab**, paste the section root as the allowed prefix, and use a lower max page count.
+
+## Outputs
+
+- **CSV**: spreadsheet-friendly inventory of discovered resources.
+- **JSON**: full inventory plus crawl metadata and scanned page log.
+- **Save Corpus**: writes authenticated Rencai downloads into `data/rencai/raw`, plus manifests and a review CSV.
+
+For Rencai, click **Save Corpus** after a successful scan and choose the repo root:
+
+`C:\repos\SchwarzmanScholarResources`
+
+The extension creates:
+
+- `data/rencai/raw/...` - downloaded files grouped by source folder.
+- `data/rencai/manifests/...` - inventory and download manifests.
+- `data/rencai/review/...` - allowlist review CSV.
+- `data/rencai/text/...` - extracted text output from the Python script.
+
+## Text Extraction
+
+After saving or manually adding source files, install optional extractors and
+run a corpus QA pass:
+
+```powershell
+python -m pip install -r requirements-corpus.txt
+python scripts\build_corpus_qa.py --root .
+```
+
+The script reads `data/blackboard` and `data/rencai/raw`, then writes extracted
+text, search chunks, one-line file summaries, and QA flags under `data/corpus`.
+Chunks include citation metadata so WhatsApp answers can cite source files.
+
+Answering rules for the eventual WhatsApp bot live in
+`docs/answering-policy.md`.
+The broader agent architecture and rollout plan live in
+`docs/whatsapp-qa-agent-design.md`.
+
+## Phase 2: Local Q&A Prototype
+
+Build a reviewed local retrieval index:
+
+```powershell
+python scripts\build_local_index.py --root .
+```
+
+Ask a retrieval-only question without calling OpenRouter:
+
+```powershell
+python scripts\ask_corpus.py --root . --retrieval-only "What documents do I need for the X1 student visa?"
+```
+
+Ask with the two-agent OpenRouter flow:
+
+```powershell
+python scripts\ask_corpus.py --root . "What documents do I need for the X1 student visa?"
+```
+
+The default drafter model is `deepseek/deepseek-v4-flash`.
+The default reviewer model is `google/gemini-3.5-flash`.
+Set `OPENROUTER_API_KEY` in `.env`, and optionally override models with:
+
+```powershell
+$env:OPENROUTER_ANSWER_MODEL = "deepseek/deepseek-v4-flash"
+$env:OPENROUTER_REVIEW_MODEL = "google/gemini-3.5-flash"
+```
+
+## Phase 3: Eval Harness
+
+Run retrieval-only evals:
+
+```powershell
+python scripts\run_eval.py --root .
+```
+
+Run full two-agent evals through OpenRouter:
+
+```powershell
+python scripts\run_eval.py --root . --llm
+```
+
+Eval outputs are written to `data/evals/runs/`. Retrieval-only mode checks
+whether the right sources are found. Full `--llm` mode also checks answer type,
+prompt-injection handling, refusal behavior, and citation formatting.
+
+## Phase 4: Local Backend
+
+Run a free local HTTP backend:
+
+```powershell
+python scripts\serve_backend.py --root . --host 127.0.0.1 --port 8765
+```
+
+Check health:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8765/health
+```
+
+Ask through the backend from the terminal:
+
+```powershell
+python scripts\query_backend.py "Can internships in China be paid?"
+```
+
+Fast retrieval-only test:
+
+```powershell
+python scripts\query_backend.py --retrieval-only "What documents do I need for the X1 visa?"
+```
+
+The backend exposes:
+
+- `GET /health` - confirms the loaded index and chunk count.
+- `POST /ask` - accepts JSON with `question`, optional `top_k`, optional
+  `retrieval_only`, and returns the answer, response type, latency, guardrail
+  summary, and cited source refs.
+
+## Phase 5: Online Backend
+
+For a real public URL, use a private GitHub repo connected to Render.
+
+This repo includes:
+
+- `render.yaml` - Render web service blueprint.
+- `requirements-backend.txt` - backend build requirements.
+
+Important: the reviewed corpus index contains extracted student-resource text,
+so it is intentionally not committed to GitHub. Keep `.env` private too. Set
+`OPENROUTER_API_KEY` and `SCHWARZMAN_INDEX_URL` inside Render's environment
+variables instead.
+
+Render setup:
+
+1. Create a private GitHub repo.
+2. Push this project.
+3. In Render, create a new Blueprint or Web Service from that private repo.
+4. Use the included `render.yaml`.
+5. Add `OPENROUTER_API_KEY` in Render's environment variables.
+6. Upload `deploy/index/local-index.json` to private storage and set
+   `SCHWARZMAN_INDEX_URL` to that private or signed download URL.
+7. Test `https://<service>.onrender.com/health`.
+
+The older Rencai-only extractor is still available:
+
+```powershell
+python scripts\extract_rencai_text.py --root .
+```
+
+## Notes
+
+- The crawler stays on the same host as the seed URL.
+- URL prefix scope limits what pages are crawled, while still inventorying resources linked from those pages.
+- Rendered active tab mode is for JavaScript-heavy sites like 12twenty/Rencai. It navigates the active tab through nested folder links and reads the rendered DOM.
+- It skips obvious logout, gradebook, submit, delete, quiz/attempt, and API URLs.
+- Rencai downloads are saved only when you click **Save Corpus** and approve a local folder.
+- Keep exports private until you have reviewed them for sensitive or restricted material.

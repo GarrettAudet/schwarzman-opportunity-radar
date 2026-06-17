@@ -1,0 +1,2 @@
+# The backend intentionally uses only Python standard library modules.
+# This file exists so hosted Python platforms have a stable build command.

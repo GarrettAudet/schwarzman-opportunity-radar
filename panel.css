@@ -1,0 +1,280 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f4;
+  --panel: #ffffff;
+  --text: #1f2528;
+  --muted: #667277;
+  --line: #d9ded9;
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --warn: #a16207;
+  --danger: #b42318;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161b1c;
+    --panel: #202728;
+    --text: #eef3f1;
+    --muted: #a7b0ad;
+    --line: #334043;
+    --accent: #5eead4;
+    --accent-strong: #2dd4bf;
+    --warn: #facc15;
+    --danger: #f87171;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.header,
+.controls,
+.stats,
+.audit,
+.exports,
+.filters,
+.log,
+.inventory {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 18px;
+}
+
+.version {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+h2 {
+  margin-bottom: 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.header p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pill.running {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.pill.warning {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 9px;
+  background: transparent;
+  color: var(--text);
+}
+
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 9px;
+  background: transparent;
+  color: var(--text);
+}
+
+.inline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.scope-field,
+#prefixField {
+  margin-top: 10px;
+}
+
+.buttons,
+.exports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+button.primary {
+  border-color: var(--accent-strong);
+  background: var(--accent);
+  color: #082f2b;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.stats div {
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.stats strong {
+  font-size: 20px;
+}
+
+.stats span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audit-summary {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.audit-summary strong {
+  color: var(--text);
+}
+
+.audit-summary .progress {
+  color: var(--accent-strong);
+}
+
+.exports {
+  margin-top: 0;
+}
+
+.log ol {
+  margin: 0;
+  max-height: 150px;
+  overflow: auto;
+  padding-left: 20px;
+  color: var(--muted);
+}
+
+.resource-list {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.resource-list.empty {
+  color: var(--muted);
+}
+
+.resource {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px;
+}
+
+.resource-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 650;
+}
+
+.resource-type {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.resource-meta {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.resource a {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: var(--accent-strong);
+  font-size: 12px;
+}

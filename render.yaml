@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: schwarzman-qa
+    runtime: python
+    plan: free
+    buildCommand: python -m pip install -r requirements-backend.txt
+    startCommand: python scripts/serve_backend.py --root . --host 0.0.0.0
+    healthCheckPath: /health
+    envVars:
+      - key: SCHWARZMAN_INDEX_URL
+        sync: false
+      - key: SCHWARZMAN_INDEX_BEARER_TOKEN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_ANSWER_MODEL
+        value: deepseek/deepseek-v4-flash
+      - key: OPENROUTER_REVIEW_MODEL
+        value: google/gemini-3.5-flash

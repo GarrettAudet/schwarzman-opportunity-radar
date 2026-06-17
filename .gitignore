@@ -1,0 +1,48 @@
+# Generated corpus files are stored locally in the repo but should not be
+# accidentally committed or pushed.
+data/blackboard/**
+!data/blackboard/.gitkeep
+data/rencai/raw/**
+data/rencai/text/**
+!data/rencai/raw/.gitkeep
+!data/rencai/text/.gitkeep
+
+# Timestamped generated exports.
+data/rencai/manifests/inventory-*.json
+data/rencai/manifests/download-manifest-*.json
+data/rencai/manifests/download-manifest-*.csv
+data/rencai/review/allowlist-review-*.csv
+data/rencai/manifests/text-manifest-*.json
+data/rencai/manifests/text-manifest-*.csv
+
+# Generated normalized corpus and QA exports. These duplicate source material
+# and should stay local until reviewed.
+data/corpus/text/**
+data/corpus/chunks/**
+data/corpus/reports/**
+data/corpus/index/**
+data/corpus/review/*.csv
+!data/corpus/README.md
+!data/corpus/text/.gitkeep
+!data/corpus/chunks/.gitkeep
+!data/corpus/reports/.gitkeep
+!data/corpus/index/README.md
+!data/corpus/review/README.md
+
+# Eval cases may contain source names or derived corpus expectations. Keep
+# local unless/until they are sanitized.
+evals/*.jsonl
+
+# Local eval outputs.
+data/evals/runs/**
+!data/evals/README.md
+
+# Deploy indexes contain extracted corpus text. Keep them local and provide
+# them to hosted services through private storage or a signed URL instead.
+deploy/index/*.json
+
+__pycache__/
+*.pyc
+
+# Environmental Variables
+.env

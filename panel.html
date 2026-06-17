@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Blackboard Inventory</title>
+    <link rel="stylesheet" href="panel.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <div>
+          <h1>Blackboard Inventory <span class="version">v0.3.1</span></h1>
+          <p id="activeTabText">Pick an open Blackboard tab, then scan.</p>
+        </div>
+        <span id="statusPill" class="pill">Idle</span>
+      </header>
+
+      <section class="controls">
+        <label class="field">
+          <span>Seed URL</span>
+          <input id="seedUrl" type="url" placeholder="https://your-blackboard-site/...">
+        </label>
+        <div class="inline">
+          <label class="field compact">
+            <span>Max pages</span>
+            <input id="maxPages" type="number" min="1" max="10000" value="1500">
+          </label>
+          <label class="field compact">
+            <span>Delay ms</span>
+            <input id="delayMs" type="number" min="0" max="5000" value="150">
+          </label>
+        </div>
+        <label class="field scope-field">
+          <span>Crawl scope</span>
+          <select id="scopeMode">
+            <option value="host">Same host: broad Blackboard-style scan</option>
+            <option value="prefix">URL prefix: narrow section scan</option>
+          </select>
+        </label>
+        <label class="field scope-field">
+          <span>Scan method</span>
+          <select id="scanMethod">
+            <option value="fetch">Fetch raw pages: best for Blackboard</option>
+            <option value="rendered">Rendered active tab: best for Rencai / 12twenty</option>
+          </select>
+        </label>
+        <label class="field" id="prefixField">
+          <span>Allowed URL prefix</span>
+          <input id="urlPrefix" type="url" placeholder="https://site.example.edu/section/">
+        </label>
+        <div class="buttons">
+          <button id="useActiveTabBtn" type="button">Use Active Tab</button>
+          <button id="scanBtn" type="button" class="primary">Start Scan</button>
+          <button id="stopBtn" type="button" disabled>Stop</button>
+        </div>
+      </section>
+
+      <section class="stats" aria-live="polite">
+        <div>
+          <strong id="pagesCount">0</strong>
+          <span>pages</span>
+        </div>
+        <div>
+          <strong id="resourcesCount">0</strong>
+          <span>resources</span>
+        </div>
+        <div>
+          <strong id="queuedCount">0</strong>
+          <span>queued</span>
+        </div>
+      </section>
+
+      <section class="audit">
+        <h2>Crawl Audit</h2>
+        <div id="auditSummary" class="audit-summary">No scan yet.</div>
+      </section>
+
+      <section class="exports">
+        <button id="exportCsvBtn" type="button" disabled>Export CSV</button>
+        <button id="exportJsonBtn" type="button" disabled>Export JSON</button>
+        <button id="saveCorpusBtn" type="button" disabled>Save Corpus</button>
+        <button id="clearBtn" type="button">Clear</button>
+      </section>
+
+      <section class="filters">
+        <label class="field">
+          <span>Filter inventory</span>
+          <input id="filterInput" type="search" placeholder="course, title, type, section...">
+        </label>
+      </section>
+
+      <section class="log">
+        <h2>Latest Activity</h2>
+        <ol id="activityLog"></ol>
+      </section>
+
+      <section class="inventory">
+        <h2>Resources</h2>
+        <div id="resourceList" class="resource-list empty">No resources yet.</div>
+      </section>
+    </main>
+    <script src="panel.js"></script>
+  </body>
+</html>
