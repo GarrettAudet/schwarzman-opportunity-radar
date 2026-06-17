@@ -167,6 +167,19 @@ The backend exposes:
 - `POST /ask` - accepts JSON with `question`, optional `top_k`, optional
   `retrieval_only`, and returns the answer, response type, latency, guardrail
   summary, and cited source refs.
+- `POST /ask/stream` - same request shape as `/ask`, but streams progress
+  events and a final answer payload as Server-Sent Events.
+
+Test the hosted streaming endpoint:
+
+```powershell
+python scripts\query_backend.py --url https://schwarzmanqna.onrender.com/ask --stream "What documents do I need for the X1 student visa?"
+```
+
+For WhatsApp, use these stream events as internal progress states. WhatsApp
+itself usually sends complete messages rather than token-by-token edits, so the
+integration should send a quick acknowledgement or typing indicator first, then
+send the final cited answer when the `final` event arrives.
 
 ## Phase 5: Online Backend
 

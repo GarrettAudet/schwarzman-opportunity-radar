@@ -5,7 +5,7 @@ import re
 import secrets
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .config import answer_model, openrouter_api_key, review_model
 from .guardrails import GuardrailResult, classify_user_input
@@ -17,6 +17,7 @@ from .retrieval import load_index, retrieve
 ANSWER_THRESHOLD = 0.72
 CLARIFY_THRESHOLD = 0.55
 EXTRACTIVE_FALLBACK_THRESHOLD = 15.0
+EventCallback = Callable[[str, dict[str, Any]], None]
 
 
 def read_policy(root: Path) -> str:
@@ -158,11 +159,41 @@ def answer_with_agents(
     retrieval_only: bool = False,
     answer_model_name: str | None = None,
     review_model_name: str | None = None,
+    event_callback: EventCallback | None = None,
 ) -> dict[str, Any]:
+    def emit(event: str, payload: dict[str, Any] | None = None) -> None:
+        if event_callback:
+            event_callback(event, payload or {})
+
+    emit("guardrail_started")
     guard = classify_user_input(question)
+    emit(
+        "guardrail_done",
+        {
+            "blocked": guard.blocked,
+            "prompt_injection_score": guard.prompt_injection_score,
+            "suspicious_phrases": guard.suspicious_phrases,
+        },
+    )
+    emit("retrieval_started")
     index = index_data if index_data is not None else load_index(root, index_path)
     results = retrieve(index, guard.normalized_text, top_k=top_k)
     top_score = results[0]["score"] if results else 0.0
+    emit(
+        "retrieval_done",
+        {
+            "top_score": top_score,
+            "source_count": len(results),
+            "sources": [
+                {
+                    "score": item.get("score", 0),
+                    "citation_ref": item.get("citation_ref", ""),
+                    "source_title": item.get("source_title", ""),
+                }
+                for item in results[:3]
+            ],
+        },
+    )
 
     base = {
         "question": guard.normalized_text,
@@ -174,15 +205,20 @@ def answer_with_agents(
     }
 
     if guard.blocked:
+        emit("answer_ready", {"response_type": "safety_refusal"})
         return {**base, "response_type": "safety_refusal", "final_answer": safety_refusal()}
     if not results or top_score < CLARIFY_THRESHOLD:
+        emit("answer_ready", {"response_type": "not_found"})
         return {**base, "response_type": "not_found", "final_answer": safe_not_found()}
     if retrieval_only:
+        emit("answer_ready", {"response_type": "retrieval_only"})
         return {**base, "response_type": "retrieval_only", "final_answer": ""}
     if should_not_found_without_llm(guard.normalized_text):
+        emit("answer_ready", {"response_type": "not_found"})
         return {**base, "response_type": "not_found", "final_answer": safe_not_found()}
     clarification = clarification_answer(guard.normalized_text, results)
     if clarification:
+        emit("answer_ready", {"response_type": "clarification"})
         return {**base, "response_type": "clarification", "final_answer": clarification}
 
     api_key = openrouter_api_key(root)
@@ -193,6 +229,7 @@ def answer_with_agents(
     allowed_refs = {str(result.get("citation_ref")) for result in results}
 
     try:
+        emit("draft_started", {"model": answer_model_name})
         draft_payload = draft_answer(
             client,
             answer_model_name,
@@ -201,11 +238,13 @@ def answer_with_agents(
             results,
             top_score,
         )
+        emit("draft_done", {"response_type": draft_payload.get("response_type", "")})
     except Exception as exc:
         if top_score >= EXTRACTIVE_FALLBACK_THRESHOLD:
             draft_text = extractive_answer(results)
             deterministic_check = check_final_answer(draft_text, allowed_refs)
             if deterministic_check.allowed:
+                emit("answer_ready", {"response_type": "answer", "fallback": "extractive"})
                 return {
                     **base,
                     "response_type": "answer",
@@ -218,6 +257,7 @@ def answer_with_agents(
                     },
                     "final_answer": draft_text,
                 }
+        emit("answer_ready", {"response_type": "agent_error", "stage": "drafter"})
         return {
             **base,
             "response_type": "agent_error",
@@ -230,6 +270,7 @@ def answer_with_agents(
     if draft_payload.get("response_type") == "not_found" and top_score >= EXTRACTIVE_FALLBACK_THRESHOLD:
         draft_text = extractive_answer(results)
     try:
+        emit("review_started", {"model": review_model_name})
         review_payload = review_answer(
             client,
             review_model_name,
@@ -238,9 +279,11 @@ def answer_with_agents(
             results,
             draft_text,
         )
+        emit("review_done", {"allowed": bool(review_payload.get("allowed", False))})
     except Exception as exc:
         deterministic_check = check_final_answer(draft_text, allowed_refs)
         if deterministic_check.allowed:
+            emit("answer_ready", {"response_type": str(draft_payload.get("response_type") or "answer")})
             return {
                 **base,
                 "response_type": str(draft_payload.get("response_type") or "answer"),
@@ -255,6 +298,7 @@ def answer_with_agents(
                 },
                 "final_answer": draft_text,
             }
+        emit("answer_ready", {"response_type": "agent_error", "stage": "reviewer"})
         return {
             **base,
             "response_type": "agent_error",
@@ -272,6 +316,7 @@ def answer_with_agents(
     if not reviewer_allowed or not deterministic_check.allowed:
         final_answer = safe_not_found()
 
+    emit("answer_ready", {"response_type": "answer" if final_answer != safe_not_found() else "not_found"})
     return {
         **base,
         "response_type": "answer" if final_answer != safe_not_found() else "not_found",

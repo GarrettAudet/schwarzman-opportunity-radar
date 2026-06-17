@@ -66,6 +66,11 @@ def json_bytes(payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> t
     return status.value, json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
 
+def sse_bytes(event: str, payload: dict[str, Any]) -> bytes:
+    data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return f"event: {event}\ndata: {data}\n\n".encode("utf-8")
+
+
 def display_path(path: Path, root: Path) -> str:
     try:
         return str(path.relative_to(root)).replace("\\", "/")
@@ -160,6 +165,18 @@ class QaRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_sse_headers(self) -> None:
+        self.send_response(HTTPStatus.OK.value)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+    def write_sse(self, event: str, payload: dict[str, Any]) -> None:
+        self.wfile.write(sse_bytes(event, payload))
+        self.wfile.flush()
+
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path in {"/", "/health"}:
@@ -167,7 +184,7 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "service": "schwarzman-qa",
-                    "endpoints": ["GET /health", "POST /ask"],
+                    "endpoints": ["GET /health", "POST /ask", "POST /ask/stream"],
                     "index_path": display_path(self.state.index_path, self.state.root),
                     "chunk_count": self.state.index_data.get("chunk_count", 0),
                 }
@@ -187,6 +204,9 @@ class QaRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path == "/ask/stream":
+            self.handle_streaming_ask()
+            return
         if path != "/ask":
             status, body = json_bytes({"ok": False, "error": "not_found"}, HTTPStatus.NOT_FOUND)
             self.send_json(status, body)
@@ -233,6 +253,55 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
         self.send_json(status, body)
+
+    def handle_streaming_ask(self) -> None:
+        try:
+            request = self.read_json_body()
+            question = str(request.get("question", "")).strip()
+            if not question:
+                status, body = json_bytes({"ok": False, "error": "question_required"}, HTTPStatus.BAD_REQUEST)
+                self.send_json(status, body)
+                return
+            top_k = min(12, max(1, int(request.get("top_k", self.state.default_top_k))))
+            retrieval_only = bool(request.get("retrieval_only", False))
+            debug = bool(request.get("debug", False))
+        except Exception as exc:
+            status, body = json_bytes(
+                {"ok": False, "error": "bad_request", "detail": str(exc)},
+                HTTPStatus.BAD_REQUEST,
+            )
+            self.send_json(status, body)
+            return
+
+        started = time.perf_counter()
+        self.send_sse_headers()
+        self.write_sse("connected", {"ok": True, "message": "Request accepted."})
+
+        try:
+            result = answer_with_agents(
+                self.state.root,
+                question,
+                index_data=self.state.index_data,
+                top_k=top_k,
+                retrieval_only=retrieval_only,
+                event_callback=self.write_sse,
+            )
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            self.write_sse("final", make_response(result, elapsed_ms, debug=debug))
+            self.write_sse("done", {"ok": True, "elapsed_ms": elapsed_ms})
+        except BrokenPipeError:
+            return
+        except Exception as exc:
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            self.write_sse(
+                "error",
+                {
+                    "ok": False,
+                    "elapsed_ms": elapsed_ms,
+                    "response_type": "server_error",
+                    "error": type(exc).__name__,
+                },
+            )
 
     def read_json_body(self) -> dict[str, Any]:
         raw_length = self.headers.get("Content-Length", "0")
