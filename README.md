@@ -35,37 +35,52 @@ The extension creates:
 - `data/rencai/review/...` - allowlist review CSV.
 - `data/rencai/text/...` - extracted text output from the Python script.
 
-## Text Extraction
+## Adding Resources To The Corpus
 
-After saving or manually adding source files, install optional extractors and
-run a corpus QA pass:
+Put source files in one of these folders:
+
+- `data/blackboard` - Blackboard PDFs, docs, spreadsheets, and other manually downloaded files.
+- `data/rencai/raw` - files saved by the extension's **Save Corpus** button.
+- `data/transcripts/raw` - video transcripts, including `.txt`, `.md`, `.srt`, `.vtt`, `.docx`, and `.pdf`.
+
+Then run from the repo root:
 
 ```powershell
 python -m pip install -r requirements-corpus.txt
 python scripts\build_corpus_qa.py --root .
-```
-
-The script reads `data/blackboard` and `data/rencai/raw`, then writes extracted
-text, search chunks, one-line file summaries, and QA flags under `data/corpus`.
-Chunks include citation metadata so WhatsApp answers can cite source files.
-
-Video transcripts can be added under:
-
-`data/transcripts/raw`
-
-Supported transcript formats include `.txt`, `.md`, `.srt`, and `.vtt`. After
-adding transcript files, run:
-
-```powershell
-python scripts\build_corpus_qa.py --root .
 python scripts\sync_corpus_review.py --root .
 ```
 
-Then edit `data/corpus/review/corpus-review.csv`, set approved transcript rows
-to `include`, and rebuild the index:
+`build_corpus_qa.py` recursively scans the source folders, extracts normalized
+text, creates search chunks, writes one-line file summaries, and flags files
+that may need manual attention. It writes generated outputs under:
+
+- `data/corpus/text` - extracted text grouped by source.
+- `data/corpus/chunks` - timestamped chunk JSONL files for search/RAG.
+- `data/corpus/reports` - timestamped QA reports and file summaries.
+
+`sync_corpus_review.py` reads the latest QA report and appends newly discovered
+files to `data/corpus/review/corpus-review.csv`. It preserves existing review
+decisions. New rows default to `review`, while files with extraction problems
+default to `needs_fix`.
+
+Review `data/corpus/review/corpus-review.csv` before indexing. Set `decision`
+to `include` for files the Q&A bot can answer from, or `summarize_only` for
+files that should be available as context but treated cautiously. Rows left as
+`review`, `needs_fix`, or `drop` are excluded from the searchable index.
+
+After review, rebuild the local retrieval index:
 
 ```powershell
 python scripts\build_local_index.py --root .
+```
+
+The index builder uses the latest chunk file plus your review CSV decisions and
+writes a timestamped index under `data/corpus/index`. For deployment, copy the
+latest generated index to the fixed Render filename:
+
+```powershell
+Copy-Item (Get-ChildItem data\corpus\index\local-index-*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName deploy\index\local-index.json -Force
 ```
 
 Answering rules for the eventual WhatsApp bot live in

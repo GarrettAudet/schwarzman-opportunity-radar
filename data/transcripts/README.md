@@ -21,6 +21,7 @@ After adding transcripts, run:
 
 ```powershell
 python scripts\build_corpus_qa.py --root .
+python scripts\sync_corpus_review.py --root .
 ```
 
 Then review the new transcript rows in:
@@ -30,4 +31,8 @@ data/corpus/review/corpus-review.csv
 ```
 
 Set `decision` to `include` for transcript files that should be searchable by
-the Q&A bot, then rebuild the local index.
+the Q&A bot, then rebuild the local index:
+
+```powershell
+python scripts\build_local_index.py --root .
+```
