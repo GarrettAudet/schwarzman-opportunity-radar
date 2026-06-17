@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import tempfile
 import time
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from .retrieval import latest_file, load_index
 MAX_BODY_BYTES = 16_384
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+API_TOKEN_ENV = "SCHWARZMAN_API_TOKEN"
 
 
 @dataclass
@@ -77,6 +79,13 @@ def display_path(path: Path, root: Path) -> str:
         return str(path.relative_to(root)).replace("\\", "/")
     except ValueError:
         return str(path)
+
+
+def is_api_authorized(authorization_header: str) -> bool:
+    token = os.environ.get(API_TOKEN_ENV, "").strip()
+    if not token:
+        return True
+    return secrets.compare_digest(authorization_header.strip(), f"Bearer {token}")
 
 
 def default_index_path(root: Path) -> Path:
@@ -166,6 +175,13 @@ class QaRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def require_api_auth(self) -> bool:
+        if is_api_authorized(self.headers.get("Authorization", "")):
+            return True
+        status, body = json_bytes({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+        self.send_json(status, body)
+        return False
+
     def send_sse_headers(self) -> None:
         self.send_response(HTTPStatus.OK.value)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -206,11 +222,15 @@ class QaRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path == "/ask/stream":
+            if not self.require_api_auth():
+                return
             self.handle_streaming_ask()
             return
         if path != "/ask":
             status, body = json_bytes({"ok": False, "error": "not_found"}, HTTPStatus.NOT_FOUND)
             self.send_json(status, body)
+            return
+        if not self.require_api_auth():
             return
 
         try:

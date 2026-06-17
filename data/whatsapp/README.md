@@ -1,0 +1,46 @@
+# WhatsApp Access Control
+
+This folder is for local/staging access-control data.
+
+The bot should store only the minimum WhatsApp identity needed for access
+control:
+
+- `wa_id`
+- `phone_number`
+- `profile_name`
+- `status`
+- timestamps and admin notes
+
+Local JSON files in this folder are ignored by git because they contain phone
+numbers. For Render, prefer a durable store such as a private GitHub-backed JSON
+file or a database; Render's free filesystem should not be the only source of
+truth for enrolled users.
+
+Useful commands:
+
+```powershell
+python scripts\manage_whatsapp_access.py list --root .
+python scripts\manage_whatsapp_access.py approve --root . --phone 15551234567 --name "Student Name"
+python scripts\manage_whatsapp_access.py block --root . --phone 15551234567 --notes "Removed from group"
+python scripts\manage_whatsapp_access.py revoke --root . --phone 15551234567
+```
+
+Environment variables:
+
+```text
+WHATSAPP_INVITE_CODE=<code posted in the group>
+WHATSAPP_ALLOWED_NUMBERS=<optional comma-separated phone allowlist>
+WHATSAPP_BLOCKED_NUMBERS=<optional comma-separated phone blocklist>
+WHATSAPP_ALLOWED_WA_IDS=<optional comma-separated wa_id allowlist>
+WHATSAPP_BLOCKED_WA_IDS=<optional comma-separated wa_id blocklist>
+WHATSAPP_ACCESS_STORE_PATH=data/whatsapp/access-control.json
+```
+
+Optional private GitHub-backed storage:
+
+```text
+GITHUB_ACCESS_REPO=GarrettAudet/SchwarzmanQnA-Index
+GITHUB_ACCESS_PATH=whatsapp-access.json
+GITHUB_ACCESS_REF=main
+GITHUB_ACCESS_TOKEN=<fine-grained token with contents read/write for the private repo>
+```

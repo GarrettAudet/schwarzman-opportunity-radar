@@ -5,9 +5,12 @@ data/blackboard/**
 data/rencai/raw/**
 data/rencai/text/**
 data/transcripts/raw/**
+data/whatsapp/*.json
 !data/rencai/raw/.gitkeep
 !data/rencai/text/.gitkeep
 !data/transcripts/raw/.gitkeep
+!data/whatsapp/README.md
+!data/whatsapp/.gitkeep
 
 # Timestamped generated exports.
 data/rencai/manifests/inventory-*.json

@@ -2,16 +2,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 import urllib.error
 import urllib.request
 
 
-def post_json(url: str, payload: dict, timeout: int) -> dict:
+def auth_headers(api_token: str = "") -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+    return headers
+
+
+def post_json(url: str, payload: dict, timeout: int, api_token: str = "") -> dict:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=auth_headers(api_token),
         method="POST",
     )
     try:
@@ -22,11 +30,13 @@ def post_json(url: str, payload: dict, timeout: int) -> dict:
         raise RuntimeError(f"HTTP {exc.code}: {body}") from exc
 
 
-def post_sse(url: str, payload: dict, timeout: int):
+def post_sse(url: str, payload: dict, timeout: int, api_token: str = ""):
+    headers = auth_headers(api_token)
+    headers["Accept"] = "text/event-stream"
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -90,6 +100,7 @@ def main() -> int:
     parser.add_argument("--retrieval-only", action="store_true")
     parser.add_argument("--top-k", type=int, default=6)
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--api-token", default=os.environ.get("SCHWARZMAN_API_TOKEN", ""))
     parser.add_argument("--json", action="store_true", help="Print full JSON response")
     args = parser.parse_args()
 
@@ -106,7 +117,12 @@ def main() -> int:
 
     if args.stream:
         final_response = None
-        for event, event_payload in post_sse(stream_url_for(args.url), payload, timeout=args.timeout):
+        for event, event_payload in post_sse(
+            stream_url_for(args.url),
+            payload,
+            timeout=args.timeout,
+            api_token=args.api_token,
+        ):
             if args.json:
                 print(json.dumps({"event": event, "data": event_payload}, ensure_ascii=False))
             elif event == "final":
@@ -123,7 +139,7 @@ def main() -> int:
         print(final_response.get("answer", ""))
         return 0 if final_response.get("ok", False) else 1
 
-    response = post_json(args.url, payload, timeout=args.timeout)
+    response = post_json(args.url, payload, timeout=args.timeout, api_token=args.api_token)
     client_elapsed_ms = int((time.perf_counter() - started) * 1000)
 
     if args.json:

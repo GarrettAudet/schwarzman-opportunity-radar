@@ -186,6 +186,42 @@ itself usually sends complete messages rather than token-by-token edits, so the
 integration should send a quick acknowledgement or typing indicator first, then
 send the final cited answer when the `final` event arrives.
 
+## WhatsApp Access Control
+
+The recommended group-limited flow is invite-code enrollment:
+
+1. Post a code in the student WhatsApp group.
+2. Students DM the bot with that code once.
+3. The bot stores their `wa_id`, phone number, display name, and approval status.
+4. Future questions are answered only for approved users.
+5. Blocked users are denied even if they previously enrolled.
+
+Local access-control data lives in `data/whatsapp/access-control.json`, which is
+ignored by git because it contains phone numbers. For Render, do not rely only
+on the free instance filesystem for this file. Use static env allow/block lists
+for small pilots, or use the private GitHub-backed JSON store described in
+`data/whatsapp/README.md`.
+
+Useful env vars:
+
+```text
+WHATSAPP_INVITE_CODE=<code posted in the group>
+WHATSAPP_ALLOWED_NUMBERS=<optional comma-separated phone allowlist>
+WHATSAPP_BLOCKED_NUMBERS=<optional comma-separated phone blocklist>
+WHATSAPP_ALLOWED_WA_IDS=<optional comma-separated WhatsApp ID allowlist>
+WHATSAPP_BLOCKED_WA_IDS=<optional comma-separated WhatsApp ID blocklist>
+SCHWARZMAN_API_TOKEN=<optional bearer token for direct /ask API calls>
+```
+
+Manage local access data:
+
+```powershell
+python scripts\manage_whatsapp_access.py list --root .
+python scripts\manage_whatsapp_access.py approve --root . --phone 15551234567 --name "Student Name"
+python scripts\manage_whatsapp_access.py block --root . --phone 15551234567 --notes "Removed from group"
+python scripts\manage_whatsapp_access.py revoke --root . --phone 15551234567
+```
+
 ## Phase 5: Online Backend
 
 For a real public URL, use a private GitHub repo connected to Render.

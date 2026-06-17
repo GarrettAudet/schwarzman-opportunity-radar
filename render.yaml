@@ -21,3 +21,23 @@ services:
         value: deepseek/deepseek-v4-flash
       - key: OPENROUTER_REVIEW_MODEL
         value: google/gemini-3.5-flash
+      - key: SCHWARZMAN_API_TOKEN
+        sync: false
+      - key: WHATSAPP_INVITE_CODE
+        sync: false
+      - key: WHATSAPP_ALLOWED_NUMBERS
+        sync: false
+      - key: WHATSAPP_BLOCKED_NUMBERS
+        sync: false
+      - key: WHATSAPP_ALLOWED_WA_IDS
+        sync: false
+      - key: WHATSAPP_BLOCKED_WA_IDS
+        sync: false
+      - key: GITHUB_ACCESS_REPO
+        value: GarrettAudet/SchwarzmanQnA-Index
+      - key: GITHUB_ACCESS_PATH
+        value: whatsapp-access.json
+      - key: GITHUB_ACCESS_REF
+        value: main
+      - key: GITHUB_ACCESS_TOKEN
+        sync: false
