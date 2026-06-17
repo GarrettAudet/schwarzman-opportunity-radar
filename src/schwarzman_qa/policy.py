@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from .citations import public_citation_ref
 from .guardrails import output_contains_internal_leak
 
 
@@ -17,6 +18,7 @@ class PolicyResult:
 
 
 def format_answer_payload(payload: dict[str, Any], allowed_refs: set[str]) -> str:
+    allowed_refs = {public_citation_ref(ref) for ref in allowed_refs}
     response_type = payload.get("response_type", "answer")
     answer = clean_answer_text(str(payload.get("answer", "")).strip())
     evidence = payload.get("evidence") or payload.get("citations") or []
@@ -31,7 +33,7 @@ def format_answer_payload(payload: dict[str, Any], allowed_refs: set[str]) -> st
     lines = ["Answer:", answer or "I don't know from the downloaded student resources.", "", "Evidence:"]
     used = 0
     for idx, item in enumerate(evidence, start=1):
-        ref = str(item.get("citation_ref", "")).strip()
+        ref = public_citation_ref(item.get("citation_ref", ""))
         if ref not in allowed_refs:
             continue
         quote = str(item.get("quote", "")).strip().replace("\n", " ")
@@ -56,6 +58,7 @@ def clean_answer_text(answer: str) -> str:
 
 
 def check_final_answer(final_answer: str, allowed_refs: set[str]) -> PolicyResult:
+    allowed_refs = {public_citation_ref(ref) for ref in allowed_refs}
     reasons: list[str] = []
     if output_contains_internal_leak(final_answer):
         reasons.append("internal_leak")

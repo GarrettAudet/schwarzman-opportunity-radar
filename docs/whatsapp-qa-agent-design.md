@@ -90,9 +90,9 @@ ID.
     {
       "chunk_id": "string",
       "relevance": 0.0,
-      "source_file": "data/path/to/file.pdf",
+      "source_file": "blackboard/path/to/file.pdf",
       "source_title": "file.pdf",
-      "citation_ref": "data/path/to/file.pdf#chunk=0",
+      "citation_ref": "blackboard/path/to/file.pdf",
       "review_decision": "include",
       "text": "string"
     }
@@ -114,7 +114,7 @@ ID.
   "citations": [
     {
       "label": "[1]",
-      "citation_ref": "data/path/to/file.pdf#chunk=0",
+      "citation_ref": "blackboard/path/to/file.pdf",
       "quote": "optional direct quote",
       "supports_claim": "string"
     }
@@ -147,7 +147,7 @@ ID.
   "retrieval_confidence": 0.0,
   "answer_confidence": 0.0,
   "policy_result": "allowed | blocked",
-  "citation_refs": ["data/path/to/file.pdf#chunk=0"],
+  "citation_refs": ["blackboard/path/to/file.pdf"],
   "latency_ms": 0,
   "error_type": ""
 }

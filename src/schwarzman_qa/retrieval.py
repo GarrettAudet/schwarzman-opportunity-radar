@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .citations import public_citation_ref
 from .corpus import latest_file, load_chunks
 
 
@@ -91,6 +92,8 @@ def build_index(root: Path, chunks_path: Path | None = None) -> dict[str, Any]:
 
     for chunk in chunks:
         text = chunk.get("text", "")
+        source_file = public_citation_ref(chunk.get("source_file") or chunk.get("path"))
+        citation_ref = public_citation_ref(chunk.get("citation_ref") or source_file)
         source_bits = " ".join(
             str(chunk.get(key, ""))
             for key in ("source_title", "source_file", "file_summary", "source")
@@ -102,9 +105,9 @@ def build_index(root: Path, chunks_path: Path | None = None) -> dict[str, Any]:
             {
                 "chunk_id": chunk.get("chunk_id"),
                 "source": chunk.get("source"),
-                "source_file": chunk.get("source_file") or chunk.get("path"),
+                "source_file": source_file,
                 "source_title": chunk.get("source_title", ""),
-                "citation_ref": chunk.get("citation_ref"),
+                "citation_ref": citation_ref,
                 "chunk_index": chunk.get("chunk_index", 0),
                 "char_start": chunk.get("char_start", 0),
                 "char_end": chunk.get("char_end", 0),
@@ -175,6 +178,9 @@ def retrieve(index: dict[str, Any], query: str, top_k: int = 6) -> list[dict[str
         score += summary_boost * 0.8
         if score > 0:
             result = {key: value for key, value in chunk.items() if key != "tokens"}
+            source_file = public_citation_ref(result.get("source_file") or result.get("path"))
+            result["source_file"] = source_file
+            result["citation_ref"] = public_citation_ref(result.get("citation_ref") or source_file)
             result["score"] = round(score, 6)
             scored.append((score, result))
 

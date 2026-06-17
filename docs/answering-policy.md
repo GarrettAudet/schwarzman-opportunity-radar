@@ -67,8 +67,8 @@ Answer:
 <short answer in plain language. Put citations after the sentence they support, like [1].>
 
 Evidence:
-[1] "<direct quote when useful>" - data/path/to/source.pdf#chunk=3
-[2] "<direct quote when useful>" - data/path/to/other-source.docx#chunk=0
+[1] "<direct quote when useful>" - blackboard/path/to/source.pdf
+[2] "<direct quote when useful>" - rencai/path/to/other-source.docx
 ```
 
 Use this structure when the answer is not supported:
@@ -94,7 +94,10 @@ I found potentially relevant sources, but they point to different topics.
 ## Citation Rules
 
 - Number citations as `[1]`, `[2]`, `[3]` within each answer.
-- Each citation must map to one `citation_ref` from a retrieved chunk.
+- Each citation must map to one `citation_ref` from a retrieved chunk. Display
+  citation refs as source-relative document paths like `blackboard/...`,
+  `rencai/...`, or `transcripts/...`; do not show internal `data/` prefixes or
+  `#chunk=` fragments to users.
 - A factual claim from the corpus needs a citation.
 - Direct quotes must be wrapped in double quotes.
 - Do not use quotation marks for paraphrases.

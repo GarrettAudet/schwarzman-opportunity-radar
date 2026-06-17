@@ -14,6 +14,7 @@ from urllib.parse import quote, urlparse
 import urllib.request
 
 from .agents import answer_with_agents
+from .citations import public_citation_ref
 from .retrieval import latest_file, load_index
 
 
@@ -41,8 +42,8 @@ def make_response(result: dict[str, Any], elapsed_ms: int, debug: bool = False) 
             "sources": [
                 {
                     "score": item.get("score", 0),
-                    "citation_ref": item.get("citation_ref", ""),
-                    "source_file": item.get("source_file", ""),
+                    "citation_ref": public_citation_ref(item.get("citation_ref", "")),
+                    "source_file": public_citation_ref(item.get("source_file", "")),
                     "source_title": item.get("source_title", ""),
                 }
                 for item in result.get("retrieval", {}).get("results", [])

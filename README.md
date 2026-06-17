@@ -83,6 +83,11 @@ latest generated index to the fixed Render filename:
 Copy-Item (Get-ChildItem data\corpus\index\local-index-*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName deploy\index\local-index.json -Force
 ```
 
+User-facing citations are source-relative document paths, such as
+`blackboard/OBTAINING YOUR X1 STUDENT VISA 2026.pdf` or
+`rencai/Job Search/example.pdf`. Internal `data/` prefixes and `#chunk=`
+fragments are not shown in answers.
+
 Answering rules for the eventual WhatsApp bot live in
 `docs/answering-policy.md`.
 The broader agent architecture and rollout plan live in

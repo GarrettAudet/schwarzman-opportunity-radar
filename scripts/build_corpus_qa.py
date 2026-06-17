@@ -386,6 +386,10 @@ def text_output_path(text_dir: Path, source_file: SourceFile, digest: str) -> Pa
     return text_dir / source_file.source / Path(*parents) / f"{stem}--{digest[:10]}.txt"
 
 
+def public_citation_ref(source_file: SourceFile) -> str:
+    return f"{source_file.source}/{source_file.source_path}".replace("\\", "/")
+
+
 def one_sentence_summary(title: str, text: str, source_path: str) -> str:
     title_text = title.replace("_", " ").replace("-", " ")
     title_text = re.sub(r"\s+", " ", title_text).strip(" .")
@@ -599,6 +603,7 @@ def main() -> int:
             output_path.write_text(text, encoding="utf-8")
             text_path = rel_posix(output_path, root)
             file_chunks = chunk_text(text, args.chunk_size, args.overlap)
+            citation_ref = public_citation_ref(source_file)
             for index, chunk in enumerate(file_chunks):
                 chunks.append(
                     {
@@ -608,7 +613,7 @@ def main() -> int:
                         "source_file": source_file.display_path,
                         "source_title": source_file.path.name,
                         "text_path": text_path,
-                        "citation_ref": f"{source_file.display_path}#chunk={index}",
+                        "citation_ref": citation_ref,
                         "chunk_index": index,
                         "char_start": chunk["char_start"],
                         "char_end": chunk["char_end"],
@@ -624,7 +629,7 @@ def main() -> int:
                 "source": source_file.source,
                 "path": source_file.display_path,
                 "source_path": source_file.source_path,
-                "citation_path": source_file.display_path,
+                "citation_path": public_citation_ref(source_file),
                 "filename": source_file.path.name,
                 "extension": source_file.path.suffix.lower(),
                 "detected_type": result.detected_type,
