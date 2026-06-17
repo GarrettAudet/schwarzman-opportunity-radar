@@ -49,6 +49,25 @@ The script reads `data/blackboard` and `data/rencai/raw`, then writes extracted
 text, search chunks, one-line file summaries, and QA flags under `data/corpus`.
 Chunks include citation metadata so WhatsApp answers can cite source files.
 
+Video transcripts can be added under:
+
+`data/transcripts/raw`
+
+Supported transcript formats include `.txt`, `.md`, `.srt`, and `.vtt`. After
+adding transcript files, run:
+
+```powershell
+python scripts\build_corpus_qa.py --root .
+python scripts\sync_corpus_review.py --root .
+```
+
+Then edit `data/corpus/review/corpus-review.csv`, set approved transcript rows
+to `include`, and rebuild the index:
+
+```powershell
+python scripts\build_local_index.py --root .
+```
+
 Answering rules for the eventual WhatsApp bot live in
 `docs/answering-policy.md`.
 The broader agent architecture and rollout plan live in

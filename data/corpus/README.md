@@ -13,6 +13,7 @@ Run from the repository root:
 
 ```powershell
 python scripts\build_corpus_qa.py --root .
+python scripts\sync_corpus_review.py --root .
 ```
 
 Generated outputs can contain material copied from student-facing documents, so

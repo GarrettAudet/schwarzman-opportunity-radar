@@ -4,8 +4,10 @@ data/blackboard/**
 !data/blackboard/.gitkeep
 data/rencai/raw/**
 data/rencai/text/**
+data/transcripts/raw/**
 !data/rencai/raw/.gitkeep
 !data/rencai/text/.gitkeep
+!data/transcripts/raw/.gitkeep
 
 # Timestamped generated exports.
 data/rencai/manifests/inventory-*.json

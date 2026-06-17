@@ -4,6 +4,7 @@ The script walks:
 
 - data/blackboard
 - data/rencai/raw
+- data/transcripts/raw
 
 It writes normalized extracted text, chunk JSONL, and file-level QA reports under
 data/corpus. Generated corpus outputs are intended to stay local unless reviewed.
@@ -27,6 +28,7 @@ from typing import Any, Callable
 
 
 TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".rtf"}
+TRANSCRIPT_SUFFIXES = {".srt", ".vtt"}
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
 SKIP_NAMES = {".gitkeep", "README.md"}
 MOJIBAKE_MARKERS = (
@@ -172,6 +174,8 @@ def detect_type(path: Path) -> str:
         return "image"
     if suffix in TEXT_SUFFIXES:
         return "text"
+    if suffix in TRANSCRIPT_SUFFIXES:
+        return "transcript"
     if suffix == ".bin":
         return "binary"
     return suffix.lstrip(".") or "unknown"
@@ -264,6 +268,38 @@ def extract_text_file(path: Path) -> ExtractResult:
         return ExtractResult("error", error=str(exc), detected_type="text")
 
 
+def extract_transcript_file(path: Path) -> ExtractResult:
+    result = extract_text_file(path)
+    result.detected_type = "transcript"
+    if result.status != "ok":
+        return result
+
+    lines: list[str] = []
+    previous = ""
+    for raw_line in result.text.splitlines():
+        line = raw_line.strip().lstrip("\ufeff")
+        if not line:
+            continue
+        if line.upper().startswith("WEBVTT"):
+            continue
+        if re.fullmatch(r"\d+", line):
+            continue
+        if "-->" in line and re.search(r"\d{1,2}:\d{2}", line):
+            continue
+        if re.fullmatch(r"NOTE\b.*", line, flags=re.I):
+            continue
+        line = re.sub(r"<[^>]+>", "", line).strip()
+        line = re.sub(r"\s+", " ", line)
+        if not line or line == previous:
+            continue
+        lines.append(line)
+        previous = line
+
+    result.text = clean_text("\n".join(lines))
+    result.notes.append("transcript_cleaned")
+    return result
+
+
 def extract_legacy_office(path: Path) -> ExtractResult:
     return ExtractResult(
         "unsupported",
@@ -292,6 +328,8 @@ def extractor_for(detected_type: str, use_ocr: bool) -> Callable[[Path], Extract
         return lambda path: extract_image(path, use_ocr)
     if detected_type == "text":
         return extract_text_file
+    if detected_type == "transcript":
+        return extract_transcript_file
     if detected_type == "html":
         return extract_html
     if detected_type == "legacy_office":
@@ -324,6 +362,19 @@ def iter_source_files(root: Path) -> list[SourceFile]:
                         path=path,
                         display_path=rel_posix(path, root),
                         source_path=rel_posix(path, rencai_raw),
+                    )
+                )
+
+    transcripts_raw = root / "data" / "transcripts" / "raw"
+    if transcripts_raw.exists():
+        for path in sorted(transcripts_raw.rglob("*")):
+            if path.is_file() and path.name not in SKIP_NAMES:
+                sources.append(
+                    SourceFile(
+                        source="transcripts",
+                        path=path,
+                        display_path=rel_posix(path, root),
+                        source_path=rel_posix(path, transcripts_raw),
                     )
                 )
     return sources
@@ -445,6 +496,8 @@ def qa_flags(source_file: SourceFile, result: ExtractResult, text_chars: int, si
         flags.append("empty_file")
     if result.status == "ok" and text_chars == 0:
         flags.append("no_text_extracted")
+    elif result.status == "ok" and result.detected_type == "transcript" and text_chars < 200:
+        flags.append("short_transcript_review")
     elif result.status == "ok" and text_chars < 400 and result.detected_type in {"pdf", "docx", "xlsx"}:
         flags.append("low_text_review")
     if result.status == "ok" and looks_garbled(result.text):
