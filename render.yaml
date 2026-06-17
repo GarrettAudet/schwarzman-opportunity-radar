@@ -7,9 +7,13 @@ services:
     startCommand: python scripts/serve_backend.py --root . --host 0.0.0.0
     healthCheckPath: /health
     envVars:
-      - key: SCHWARZMAN_INDEX_URL
-        sync: false
-      - key: SCHWARZMAN_INDEX_BEARER_TOKEN
+      - key: GITHUB_INDEX_REPO
+        value: GarrettAudet/SchwarzmanQnA-Index
+      - key: GITHUB_INDEX_PATH
+        value: local-index.json
+      - key: GITHUB_INDEX_REF
+        value: main
+      - key: GITHUB_INDEX_TOKEN
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false

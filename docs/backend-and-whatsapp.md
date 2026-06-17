@@ -44,9 +44,39 @@ deploy/index/local-index.json
 ```
 
 That file contains reviewed corpus text and is ignored by Git. Do not commit it
-or `.env`. Upload the index to private storage and set `SCHWARZMAN_INDEX_URL`
-in Render's environment-variable settings. If the URL requires a bearer token,
-set `SCHWARZMAN_INDEX_BEARER_TOKEN` as well.
+or `.env` to the publicable code repo.
+
+The preferred setup is a separate private GitHub repo for the index:
+
+```text
+GarrettAudet/SchwarzmanQnA-Index
+```
+
+That private repo should contain only:
+
+```text
+local-index.json
+```
+
+Render then downloads the file at startup through the GitHub Contents API using
+a fine-grained GitHub token with read-only access to that private index repo.
+
+Set these Render environment variables:
+
+```text
+GITHUB_INDEX_REPO=GarrettAudet/SchwarzmanQnA-Index
+GITHUB_INDEX_PATH=local-index.json
+GITHUB_INDEX_REF=main
+GITHUB_INDEX_TOKEN=<fine-grained GitHub token with Contents: Read access>
+OPENROUTER_API_KEY=<your OpenRouter key>
+```
+
+The backend also still supports a generic private URL:
+
+```text
+SCHWARZMAN_INDEX_URL=<private index download URL>
+SCHWARZMAN_INDEX_BEARER_TOKEN=<optional bearer token>
+```
 
 After deployment, the online health URL will look like:
 

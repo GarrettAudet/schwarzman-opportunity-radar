@@ -144,9 +144,9 @@ This repo includes:
 - `requirements-backend.txt` - backend build requirements.
 
 Important: the reviewed corpus index contains extracted student-resource text,
-so it is intentionally not committed to GitHub. Keep `.env` private too. Set
-`OPENROUTER_API_KEY` and `SCHWARZMAN_INDEX_URL` inside Render's environment
-variables instead.
+so it is intentionally not committed to the code repo. Keep `.env` private too.
+The recommended setup is a separate private GitHub repo named
+`SchwarzmanQnA-Index` that contains only `local-index.json`.
 
 Render setup:
 
@@ -154,10 +154,13 @@ Render setup:
 2. Push this project.
 3. In Render, create a new Blueprint or Web Service from that private repo.
 4. Use the included `render.yaml`.
-5. Add `OPENROUTER_API_KEY` in Render's environment variables.
-6. Upload `deploy/index/local-index.json` to private storage and set
-   `SCHWARZMAN_INDEX_URL` to that private or signed download URL.
-7. Test `https://<service>.onrender.com/health`.
+5. Create private repo `GarrettAudet/SchwarzmanQnA-Index` and upload
+   `deploy/index/local-index.json` there as `local-index.json`.
+6. Create a fine-grained GitHub token with read-only Contents access to that
+   private index repo.
+7. Add `OPENROUTER_API_KEY` and `GITHUB_INDEX_TOKEN` in Render's environment
+   variables.
+8. Test `https://<service>.onrender.com/health`.
 
 The older Rencai-only extractor is still available:
 

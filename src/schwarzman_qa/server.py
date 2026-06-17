@@ -10,7 +10,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 import urllib.request
 
 from .agents import answer_with_agents
@@ -71,6 +71,12 @@ def default_index_path(root: Path) -> Path:
     if index_url:
         return download_index(index_url)
 
+    github_repo = os.environ.get("GITHUB_INDEX_REPO", "").strip()
+    if github_repo:
+        github_path = os.environ.get("GITHUB_INDEX_PATH", "local-index.json").strip()
+        github_ref = os.environ.get("GITHUB_INDEX_REF", "main").strip()
+        return download_github_index(github_repo, github_path, github_ref)
+
     local_index_dir = root / "data" / "corpus" / "index"
     if local_index_dir.exists():
         try:
@@ -84,7 +90,7 @@ def default_index_path(root: Path) -> Path:
 
     raise FileNotFoundError(
         "No local retrieval index found. Run scripts/build_local_index.py locally "
-        "or provide SCHWARZMAN_INDEX_PATH or SCHWARZMAN_INDEX_URL."
+        "or provide SCHWARZMAN_INDEX_PATH, SCHWARZMAN_INDEX_URL, or GITHUB_INDEX_REPO."
     )
 
 
@@ -98,6 +104,33 @@ def download_index(index_url: str) -> Path:
     if bearer_token:
         request.add_header("Authorization", f"Bearer {bearer_token}")
 
+    with urllib.request.urlopen(request, timeout=60) as response:
+        target.write_bytes(response.read())
+    return target
+
+
+def download_github_index(repo: str, path: str, ref: str) -> Path:
+    target = Path(tempfile.gettempdir()) / "schwarzman-github-index.json"
+    if target.exists() and target.stat().st_size > 0:
+        return target
+
+    token = os.environ.get("GITHUB_INDEX_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("GITHUB_INDEX_TOKEN is required when GITHUB_INDEX_REPO is set")
+
+    encoded_path = quote(path.strip("/"))
+    encoded_ref = quote(ref)
+    url = f"https://api.github.com/repos/{repo}/contents/{encoded_path}?ref={encoded_ref}"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github.raw",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "schwarzman-qna-render",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        method="GET",
+    )
     with urllib.request.urlopen(request, timeout=60) as response:
         target.write_bytes(response.read())
     return target
