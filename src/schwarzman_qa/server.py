@@ -20,6 +20,14 @@ from .agents import answer_with_agents
 from .citations import public_citation_ref
 from .config import load_env
 from .retrieval import latest_file, load_index
+from .twilio_whatsapp import (
+    extract_message as extract_twilio_message,
+    parse_form_body,
+    send_text as send_twilio_text,
+    should_validate_signature as should_validate_twilio_signature,
+    twiml_response,
+    validate_signature as validate_twilio_signature,
+)
 from .whatsapp import extract_messages, send_text, verify_signature, verify_webhook_token
 
 
@@ -93,6 +101,15 @@ def is_api_authorized(authorization_header: str) -> bool:
     if not token:
         return True
     return secrets.compare_digest(authorization_header.strip(), f"Bearer {token}")
+
+
+def external_request_url(headers: Any, path: str) -> str:
+    configured = os.environ.get("TWILIO_WEBHOOK_URL", "").strip()
+    if configured:
+        return configured
+    proto = headers.get("X-Forwarded-Proto", "https").split(",", 1)[0].strip() or "https"
+    host = headers.get("X-Forwarded-Host") or headers.get("Host", "")
+    return f"{proto}://{host}{path}"
 
 
 def default_index_path(root: Path) -> Path:
@@ -189,6 +206,13 @@ class QaRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode("utf-8"))
 
+    def send_twiml(self, status: HTTPStatus, body: bytes) -> None:
+        self.send_response(status.value)
+        self.send_header("Content-Type", "application/xml; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def require_api_auth(self) -> bool:
         if is_api_authorized(self.headers.get("Authorization", "")):
             return True
@@ -232,6 +256,7 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                         "POST /ask/stream",
                         "GET /webhooks/whatsapp",
                         "POST /webhooks/whatsapp",
+                        "POST /webhooks/twilio/whatsapp",
                     ],
                     "index_path": display_path(self.state.index_path, self.state.root),
                     "chunk_count": self.state.index_data.get("chunk_count", 0),
@@ -252,6 +277,9 @@ class QaRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path == "/webhooks/twilio/whatsapp":
+            self.handle_twilio_whatsapp_webhook()
+            return
         if path == "/webhooks/whatsapp":
             self.handle_whatsapp_webhook()
             return
@@ -344,6 +372,104 @@ class QaRequestHandler(BaseHTTPRequestHandler):
 
         status, body = json_bytes({"ok": True, "queued": queued})
         self.send_json(status, body)
+
+    def handle_twilio_whatsapp_webhook(self) -> None:
+        try:
+            raw_body = self.read_raw_body()
+            form = parse_form_body(raw_body)
+            if should_validate_twilio_signature():
+                callback_url = external_request_url(self.headers, "/webhooks/twilio/whatsapp")
+                valid = validate_twilio_signature(
+                    callback_url,
+                    form,
+                    self.headers.get("X-Twilio-Signature", ""),
+                    os.environ.get("TWILIO_AUTH_TOKEN", "").strip(),
+                )
+                if not valid:
+                    self.send_twiml(HTTPStatus.FORBIDDEN, twiml_response())
+                    return
+            message = extract_twilio_message(form)
+        except Exception as exc:
+            print(f"Twilio webhook parse failed: {type(exc).__name__}", flush=True)
+            self.send_twiml(HTTPStatus.BAD_REQUEST, twiml_response())
+            return
+
+        message_key = message.message_id or f"{message.wa_id}:{hash(message.body)}"
+        with self.state.processed_lock:
+            if message_key not in self.state.processed_whatsapp_ids:
+                self.state.processed_whatsapp_ids.add(message_key)
+                if len(self.state.processed_whatsapp_ids) > 1000:
+                    self.state.processed_whatsapp_ids = set(list(self.state.processed_whatsapp_ids)[-500:])
+                threading.Thread(target=self.process_twilio_whatsapp_message, args=(message,), daemon=True).start()
+
+        self.send_twiml(HTTPStatus.OK, twiml_response())
+
+    def process_twilio_whatsapp_message(self, message: Any) -> None:
+        try:
+            access = self.state.whatsapp_access
+            text = message.body.strip()
+            decision = access.check(message.wa_id, message.phone_number)
+            if decision.status == "blocked":
+                send_twilio_text(
+                    message.from_address,
+                    "This number is not approved for the Schwarzman resource bot.",
+                    from_address=message.to_address,
+                )
+                return
+
+            invite_code = os.environ.get("WHATSAPP_INVITE_CODE", "").strip()
+            if invite_code and secrets.compare_digest(text, invite_code):
+                invite_decision = access.redeem_invite(
+                    text,
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                )
+                if invite_decision.allowed:
+                    send_twilio_text(
+                        message.from_address,
+                        "You're approved. Ask me a question about the reviewed Schwarzman student resources.",
+                        from_address=message.to_address,
+                    )
+                else:
+                    send_twilio_text(
+                        message.from_address,
+                        "That invite code was not accepted. Please use the code posted in the student group.",
+                        from_address=message.to_address,
+                    )
+                return
+
+            if not decision.allowed:
+                access.record_seen(message.wa_id, message.phone_number, profile_name=message.profile_name)
+                send_twilio_text(
+                    message.from_address,
+                    "I don't have this WhatsApp number approved yet. Please send the invite code posted in the student group.",
+                    from_address=message.to_address,
+                )
+                return
+
+            if not text or message.num_media:
+                send_twilio_text(
+                    message.from_address,
+                    "I can only answer text questions right now.",
+                    from_address=message.to_address,
+                )
+                return
+
+            send_twilio_text(message.from_address, "Got it - searching the reviewed resources now.", from_address=message.to_address)
+            started = time.perf_counter()
+            result = answer_with_agents(
+                self.state.root,
+                text,
+                index_data=self.state.index_data,
+                top_k=self.state.default_top_k,
+            )
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            response = make_response(result, elapsed_ms)
+            answer = response.get("answer") or "I don't know from the downloaded student resources."
+            send_twilio_text(message.from_address, str(answer), from_address=message.to_address)
+        except Exception as exc:
+            print(f"Twilio WhatsApp message handling failed: {type(exc).__name__}", flush=True)
 
     def process_whatsapp_message(self, message: Any) -> None:
         try:

@@ -35,6 +35,16 @@ services:
         sync: false
       - key: WHATSAPP_GRAPH_API_VERSION
         value: v23.0
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        sync: false
+      - key: TWILIO_VALIDATE_SIGNATURE
+        value: "true"
+      - key: TWILIO_WEBHOOK_URL
+        value: https://schwarzmanqna.onrender.com/webhooks/twilio/whatsapp
       - key: WHATSAPP_ALLOWED_NUMBERS
         sync: false
       - key: WHATSAPP_BLOCKED_NUMBERS

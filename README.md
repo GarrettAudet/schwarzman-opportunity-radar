@@ -229,6 +229,42 @@ python scripts\manage_whatsapp_access.py revoke --root . --phone 15551234567
 
 ## WhatsApp Webhook
 
+### Twilio Sandbox Path
+
+For the prototype, Twilio is the easiest WhatsApp transport. In Twilio Console,
+use the WhatsApp Sandbox first.
+
+Render env vars:
+
+```text
+TWILIO_ACCOUNT_SID=<from Twilio Console>
+TWILIO_AUTH_TOKEN=<from Twilio Console>
+TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
+TWILIO_VALIDATE_SIGNATURE=true
+TWILIO_WEBHOOK_URL=https://schwarzmanqna.onrender.com/webhooks/twilio/whatsapp
+WHATSAPP_INVITE_CODE=<code students send after joining the sandbox>
+```
+
+In Twilio's WhatsApp Sandbox settings, set:
+
+```text
+When a message comes in:
+https://schwarzmanqna.onrender.com/webhooks/twilio/whatsapp
+
+Method:
+POST
+```
+
+To test, join your Twilio Sandbox from your personal WhatsApp by sending the
+`join ...` message Twilio shows in the Sandbox screen. Then send your
+`WHATSAPP_INVITE_CODE`. Once approved, send a resource question.
+
+Twilio webhook signature validation is enabled by default. Keep
+`TWILIO_WEBHOOK_URL` exactly equal to the URL configured in Twilio so signature
+checks match.
+
+### Meta Cloud API Path
+
 After adding the WhatsApp env vars and redeploying Render, configure Meta's
 WhatsApp webhook with:
 
