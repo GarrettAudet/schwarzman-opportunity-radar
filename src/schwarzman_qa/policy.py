@@ -106,7 +106,7 @@ def format_chat_answer(final_answer: str, max_quotes: int = 2, max_sources: int 
     if "Evidence:" in text:
         answer_part, evidence_part = text.split("Evidence:", 1)
     answer_part = clean_answer_text(answer_part)
-    answer_part = clean_visible_text(answer_part)
+    answer_part = format_answer_part_for_chat(answer_part)
 
     quote_lines, source_lines = compact_evidence_sections(
         evidence_part,
@@ -117,10 +117,61 @@ def format_chat_answer(final_answer: str, max_quotes: int = 2, max_sources: int 
         source_lines = []
     sections = [answer_part]
     if quote_lines:
-        sections.append("Direct quotes:\n" + "\n".join(quote_lines))
+        sections.append("Evidence:\n" + "\n".join(quote_lines))
     if source_lines:
-        sections.append("Sources:\n" + "\n".join(source_lines))
+        sections.append("Resources used:\n" + "\n".join(source_lines))
     return "\n\n".join(section for section in sections if section.strip())
+
+
+def format_answer_part_for_chat(answer: str) -> str:
+    text = clean_visible_text(answer)
+    text = expand_inline_numbered_list(text)
+    text = re.sub(r"(\[\d+\])\s+(?=[A-Z])", r"\1\n\n", text)
+    text = strip_inline_citations_for_chat(text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def strip_inline_citations_for_chat(text: str) -> str:
+    text = re.sub(r"\s*\[(?:\d+(?:,\s*)?)+\]", "", text)
+    text = re.sub(r"\s+([.;,:])", r"\1", text)
+    return text
+
+
+def expand_inline_numbered_list(text: str) -> str:
+    matches = list(re.finditer(r"\((\d+)\)\s+", text))
+    if len(matches) < 2:
+        return text
+
+    prefix = text[: matches[0].start()].strip()
+    if not prefix.endswith(":"):
+        return text
+
+    lines = [prefix]
+    trailing_text = ""
+    for idx, match in enumerate(matches):
+        number = match.group(1)
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        item = text[start:end].strip()
+        item = re.sub(r"^(and\s+)", "", item, flags=re.I).strip()
+        if idx + 1 < len(matches):
+            item = strip_inline_citations_for_chat(item)
+            item = re.sub(r"(?:;|,)?\s+and\s*$", "", item, flags=re.I)
+            item = item.rstrip(";,. ")
+        else:
+            citation_break = re.search(r"(\[\d+\])\s+(?=[A-Z])", item)
+            if citation_break:
+                trailing_text = item[citation_break.end() :].strip()
+                item = item[: citation_break.end()].strip()
+            item = strip_inline_citations_for_chat(item)
+            item = item.rstrip("; ")
+        if item:
+            lines.append(f"{number}. {item}")
+
+    if trailing_text:
+        lines.extend(["", trailing_text])
+    return "\n".join(lines)
 
 
 def compact_evidence_sections(
@@ -150,7 +201,7 @@ def compact_evidence_sections(
         matched_numbers.add(number)
         label = source_label(ref)
         if len(quote_lines) < max_quotes:
-            quote_lines.append(f"[{number}] \"{clean_evidence_quote(quote, max_chars=180)}\"")
+            quote_lines.append(format_chat_quote_line(quote))
         add_source(number, label)
         if len(source_order) >= max_sources and len(quote_lines) >= max_quotes:
             break
@@ -175,10 +226,7 @@ def compact_evidence_sections(
             add_source(number, label)
         if len(source_order) >= max_sources and len(quote_lines) >= max_quotes:
             break
-    source_lines = [
-        f"{', '.join(f'[{number}]' for number in source_numbers[label])} {label}"
-        for label in source_order
-    ]
+    source_lines = [f"- {label}" for label in source_order]
     return quote_lines, source_lines
 
 
@@ -196,7 +244,38 @@ def source_label(ref: str) -> str:
         "transcripts": "Transcript",
     }.get(source.lower(), source.title() or "Source")
     display_path = path or public_ref
-    return f"{source_name} - {display_path}"
+    return f"{source_name}: {display_path}"
+
+
+def format_chat_quote_line(quote: str) -> str:
+    return f"- {quote_label(quote)}: \"{clean_chat_quote(quote)}\""
+
+
+def quote_label(quote: str) -> str:
+    lowered = quote.lower()
+    if "passport" in lowered or "blank page" in lowered:
+        return "Passport requirement"
+    if "jw202" in lowered or "admission notice" in lowered or "university documents" in lowered:
+        return "University documents"
+    if "physical exam" in lowered or "blood test" in lowered:
+        return "Physical exam"
+    if "scanned copy" in lowered or "scanned copies" in lowered:
+        return "Scanned copies"
+    if "visa application form" in lowered:
+        return "Visa application form"
+    return "Source text"
+
+
+def clean_chat_quote(text: str, max_chars: int = 115) -> str:
+    quote = clean_evidence_quote(text, max_chars=260)
+    quote = re.sub(r"^Step\s+\d+:\s+[A-Z0-9 ,/&()'-]+\s+-\s+", "", quote)
+    quote = re.sub(r"^Step\s+\d+:\s+[A-Z0-9 ,/&()'-]+\s+1\.\s+", "", quote)
+    quote = re.sub(r"\s+\d+\.\s+", "; ", quote)
+    quote = re.sub(r"\s+-\s+", "; ", quote)
+    quote = re.sub(r"\s+", " ", quote).strip()
+    if len(quote) <= max_chars:
+        return quote
+    return quote[:max_chars].rsplit(" ", 1)[0].rstrip(".,;:") + "..."
 
 
 def check_final_answer(final_answer: str, allowed_refs: set[str]) -> PolicyResult:
