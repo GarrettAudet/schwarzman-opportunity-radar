@@ -49,6 +49,8 @@ CATALOG_TOPICS = [
 DOMAIN_SCOPE_TERMS = {
     "blackboard",
     "rencai",
+    "scholar",
+    "scholars",
     "schwarzman",
     "schwarzman scholars",
     "schwarzman college",
@@ -135,6 +137,14 @@ RESOURCE_SCOPE_TERMS = {
     "visa",
     "vaccination",
     "wechat",
+    "webinar",
+    "webinars",
+    "welcome meeting",
+    "welcome webinar",
+    "meeting",
+    "meetings",
+    "international scholar",
+    "international scholars",
     "ngo",
     "ngos",
     "nonprofit",
@@ -409,6 +419,15 @@ def is_language_program_question(question: str) -> bool:
     )
 
 
+def is_webinar_summary_question(question: str) -> bool:
+    lowered = question.lower()
+    if not re.search(r"\b(webinar|meeting|call|session)\b", lowered):
+        return False
+    if not re.search(r"\b(international scholars?|c11|student|students?|welcome|incoming)\b", lowered):
+        return False
+    return bool(re.search(r"\b(cover|covered|about|discuss|discussed|summary|summarize|recap)\b", lowered))
+
+
 def is_general_residence_permit_question(question: str) -> bool:
     lowered = question.lower()
     if not re.search(r"\b(residence permits?|stay permits?)\b", lowered):
@@ -565,6 +584,47 @@ def residence_permit_answer(results: list[dict[str, Any]]) -> str | None:
     return "\n".join(lines)
 
 
+def webinar_summary_answer(results: list[dict[str, Any]]) -> str | None:
+    webinar_results = [
+        result
+        for result in results
+        if "international scholar" in str(result.get("citation_ref", "") or result.get("source_file", "")).lower()
+        or "international student webinar" in str(result.get("citation_ref", "") or result.get("source_file", "")).lower()
+    ]
+    if not webinar_results:
+        return None
+
+    evidence: list[tuple[str, str]] = []
+    for item in (
+        language_quote_for(webinar_results, ["welcome you all to the community", "orientation prep is already underway"]),
+        language_quote_for(webinar_results, ["logistical tasks", "Do them as soon as possible"]),
+        language_quote_for(webinar_results, ["medical questionnaire", "prescription medication"]),
+        language_quote_for(webinar_results, ["Ling Go Bus", "Chinese readings"]),
+        language_quote_for(webinar_results, ["packing list", "bring more allergy meds"]),
+    ):
+        if item and item not in evidence:
+            evidence.append(item)
+
+    if not evidence:
+        for result in webinar_results[:2]:
+            ref = str(result.get("citation_ref", "")).strip()
+            quote = clean_quote(str(result.get("text", "")), max_chars=280)
+            if ref and quote:
+                evidence.append((ref, quote))
+    if not evidence:
+        return None
+
+    lines = [
+        "Answer:",
+        "The international scholars webinar was mainly a welcome and pre-arrival prep session. It covered joining the Schwarzman community, orientation, what to expect from the cohort experience, staying on top of logistics/deadlines, visa and health preparation, language prep, flights, packing, medication, and practical advice from current scholars. [1] [2]",
+        "",
+        "Evidence:",
+    ]
+    for idx, (ref, quote) in enumerate(evidence[:3], start=1):
+        lines.append(f"[{idx}] \"{quote}\" - {ref}")
+    return "\n".join(lines)
+
+
 def packing_quote_for(results: list[dict[str, Any]], phrases: list[str]) -> tuple[str, str] | None:
     for phrase in phrases:
         phrase_lower = phrase.lower()
@@ -633,6 +693,13 @@ def should_not_found_for_irrelevant_results(question: str, results: list[dict[st
 def retrieval_query_for(question: str) -> str:
     lowered = question.lower()
     aliases: list[str] = []
+    if is_webinar_summary_question(question):
+        aliases.extend(
+            [
+                "C11 International Scholars Webinar April 28 2026",
+                "welcome orientation logistics medical questionnaire prescription medication packing Ling Go Bus",
+            ]
+        )
     if re.search(r"\btodo\b|\bto do\b", lowered) and "to-do" not in lowered:
         aliases.append("to-do")
     if re.search(r"\bresidence permits\b", lowered):
@@ -808,6 +875,11 @@ def answer_with_agents(
         deterministic_answer = todo_answer(results)
         if deterministic_answer:
             emit("answer_ready", {"response_type": "answer", "fallback": "todo"})
+            return {**base, "response_type": "answer", "final_answer": deterministic_answer}
+    if is_webinar_summary_question(guard.normalized_text):
+        deterministic_answer = webinar_summary_answer(results)
+        if deterministic_answer:
+            emit("answer_ready", {"response_type": "answer", "fallback": "webinar_summary"})
             return {**base, "response_type": "answer", "final_answer": deterministic_answer}
     if is_broad_packing_question(guard.normalized_text):
         deterministic_answer = packing_answer(results)
