@@ -64,14 +64,36 @@ Recommended update workflow:
 4. Review `data/corpus/review/corpus-review.csv`. Set new trusted rows to
    `include` or `summarize_only`; leave questionable files as `review`,
    `needs_fix`, or `drop`.
-5. Rebuild the index and smoke-test retrieval:
+5. Audit extraction quality before indexing:
+
+   ```powershell
+   python scripts\audit_corpus_quality.py --root .
+   ```
+
+   Open the newest report in `data/corpus/reports/`. Fix or exclude files
+   flagged for empty extraction, scanned PDFs, unsupported legacy Office
+   formats, weak summaries, or obvious text corruption.
+6. Rebuild the index and smoke-test retrieval:
 
    ```powershell
    python scripts\build_local_index.py --root .
    python scripts\ask_corpus.py --root . --retrieval-only "What documents do I need for the X1 visa?"
    ```
 
-6. Upload the latest generated index to the private index repo:
+7. Run the retrieval and WhatsApp behavior gates:
+
+   ```powershell
+   python scripts\run_retrieval_eval.py --root .
+   python scripts\run_whatsapp_smoke.py --root .
+   ```
+
+   For a smaller live-model check before deploy:
+
+   ```powershell
+   python scripts\run_whatsapp_smoke.py --root . --llm --ids international_scholars_webinar,todo_current,x1_visa_docs,residence_permits,mandarin_resources,cover_letter_resources,sector_nonprofit,unsupported_housing,prompt_injection
+   ```
+
+8. Upload the latest generated index to the private index repo:
 
    ```powershell
    $env:GITHUB_INDEX_UPLOAD_TOKEN = "<fine-grained GitHub token with Contents read/write access>"
@@ -81,7 +103,7 @@ Recommended update workflow:
    The upload script copies the latest `data/corpus/index/local-index-*.json`
    to `deploy/index/local-index.json`, then uploads it to the private
    `GarrettAudet/SchwarzmanQnA-Index` repo as `local-index.json`.
-7. Redeploy or restart Render so the service reloads the updated index.
+9. Redeploy or restart Render so the service reloads the updated index.
 
 The raw source files, extracted text, chunks, review CSV, and deploy index are
 ignored in this app repo. Keep them local or in private storage; do not push
@@ -102,6 +124,13 @@ that may need manual attention. It writes generated outputs under:
 - `data/corpus/text` - extracted text grouped by source.
 - `data/corpus/chunks` - timestamped chunk JSONL files for search/RAG.
 - `data/corpus/reports` - timestamped QA reports and file summaries.
+
+`audit_corpus_quality.py` reads the reviewed corpus sheet and scores each file
+for RAG readiness. It is designed to catch problems that make answers bad even
+when retrieval code is working: scanned PDFs with no text, legacy `.doc` files
+that were not converted, corrupted extraction, duplicated boilerplate, very
+thin text, and weak summaries. Its reports are local generated artifacts and
+are ignored by git.
 
 `sync_corpus_review.py` reads the latest QA report and appends newly discovered
 files to `data/corpus/review/corpus-review.csv`. It preserves existing review
@@ -191,6 +220,37 @@ python scripts\run_eval.py --root . --llm
 Eval outputs are written to `data/evals/runs/`. Retrieval-only mode checks
 whether the right sources are found. Full `--llm` mode also checks answer type,
 prompt-injection handling, refusal behavior, and citation formatting.
+
+Run the targeted retrieval suite when you want to know whether search is finding
+the expected documents:
+
+```powershell
+python scripts\run_retrieval_eval.py --root .
+```
+
+This suite checks top-1, top-3, and top-5 source matches for diverse questions
+across visas, residence permits, To-Do items, webinars, career resources,
+language programs, tests, transcripts, and intentionally unsupported questions.
+It also records document-summary candidates so weak chunk retrieval can be
+diagnosed separately from weak corpus structure.
+
+Run the WhatsApp-style behavior smoke test before deploy:
+
+```powershell
+python scripts\run_whatsapp_smoke.py --root .
+```
+
+For a representative live-model gate through OpenRouter:
+
+```powershell
+python scripts\run_whatsapp_smoke.py --root . --llm --ids international_scholars_webinar,todo_current,x1_visa_docs,residence_permits,mandarin_resources,cover_letter_resources,sector_nonprofit,unsupported_housing,prompt_injection
+```
+
+The answer path uses normal RAG first. If chunk search is weak but document
+titles, paths, and one-line summaries point strongly to likely files, the
+backend uses those document candidates to broaden retrieval and try again. The
+model still answers from retrieved chunks with citations; summaries are a
+retrieval aid, not standalone evidence.
 
 ## Phase 4: Local Backend
 

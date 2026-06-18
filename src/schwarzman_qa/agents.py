@@ -20,12 +20,13 @@ from .policy import (
     clean_visible_text,
     format_answer_payload,
 )
-from .retrieval import load_index, retrieve
+from .retrieval import document_candidates, load_index, retrieve
 
 
 ANSWER_THRESHOLD = 0.72
 CLARIFY_THRESHOLD = 0.55
 EXTRACTIVE_FALLBACK_THRESHOLD = 15.0
+DOCUMENT_FALLBACK_THRESHOLD = 8.0
 EventCallback = Callable[[str, dict[str, Any]], None]
 CAPABILITY_BODY = (
     "I answer Schwarzman/Tsinghua questions from available Blackboard and Rencai resources.\n\n"
@@ -184,6 +185,23 @@ def compact_results(results: list[dict[str, Any]], max_chars: int = 2200) -> lis
                 "char_start": result.get("char_start"),
                 "char_end": result.get("char_end"),
                 "text": str(result.get("text", ""))[:max_chars],
+            }
+        )
+    return compact
+
+
+def compact_document_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compact = []
+    for candidate in candidates:
+        compact.append(
+            {
+                "score": candidate.get("score", 0.0),
+                "citation_ref": candidate.get("citation_ref", ""),
+                "source_file": candidate.get("source_file", ""),
+                "source_title": candidate.get("source_title", ""),
+                "file_summary": str(candidate.get("file_summary", ""))[:500],
+                "chunk_count": candidate.get("chunk_count", 0),
+                "match_reasons": candidate.get("match_reasons", []),
             }
         )
     return compact
@@ -681,8 +699,11 @@ def has_result_text(results: list[dict[str, Any]], terms: list[str]) -> bool:
 
 def should_not_found_for_irrelevant_results(question: str, results: list[dict[str, Any]]) -> bool:
     lowered = question.lower()
+    if re.search(r"\bwhere\b.*\b(rent|rental|apartment)\b|\bwhich neighborhoods?\b", lowered):
+        return True
     topic_terms = [
-        (r"\b(apartment|rent|rental|renting|housing)\b", ["apartment", "rent", "rental", "housing"]),
+        (r"\b(apartment|rent|rental|renting)\b", ["apartment", "rent", "rental", "renting"]),
+        (r"\bhousing\b", ["housing", "dorm"]),
     ]
     for pattern, terms in topic_terms:
         if re.search(pattern, lowered) and not has_result_text(results, terms):
@@ -693,13 +714,22 @@ def should_not_found_for_irrelevant_results(question: str, results: list[dict[st
 def retrieval_query_for(question: str) -> str:
     lowered = question.lower()
     aliases: list[str] = []
+    if re.search(r"\bwelcome meeting\b", lowered) and re.search(r"\bjanuary\b|\bjan\b|1/12|12", lowered):
+        aliases.extend(["C11 Welcome Meeting January 12 2026 incoming students"])
     if is_webinar_summary_question(question):
-        aliases.extend(
-            [
-                "C11 International Scholars Webinar April 28 2026",
-                "welcome orientation logistics medical questionnaire prescription medication packing Ling Go Bus",
-            ]
-        )
+        if not aliases:
+            aliases.extend(
+                [
+                    "C11 International Scholars Webinar April 28 2026",
+                    "welcome orientation logistics medical questionnaire prescription medication packing Ling Go Bus",
+                ]
+            )
+    if re.search(r"\b(action items?|deadlines?|checklist|complete)\b", lowered) and re.search(
+        r"\b(incoming|pre[- ]?arrival|students?)\b", lowered
+    ):
+        aliases.extend(["Blackboard To-Do capstone preliminary interest survey prerequisite course exemption deadline mandatory action item"])
+    if re.search(r"\bjw\s*202\b|\bjw202\b|\badmission notice\b", lowered):
+        aliases.extend(["X1 student visa JW202 Tsinghua University Admission Notice QNHR admission portal Visa FAQ 2026"])
     if re.search(r"\btodo\b|\bto do\b", lowered) and "to-do" not in lowered:
         aliases.append("to-do")
     if re.search(r"\bresidence permits\b", lowered):
@@ -714,6 +744,8 @@ def retrieval_query_for(question: str) -> str:
         aliases.extend(["cover letter", "Schwarzman Scholars Cover Letter Guide"])
     if re.search(r"\bnonprofits?\b|\bngos?\b", lowered):
         aliases.extend(["nonprofit", "NGO", "public sector"])
+    if re.search(r"\bfinance\b|\binvestment banking\b", lowered):
+        aliases.extend(["Resource Guide - Finance Role investment banking finance career resources"])
     if not aliases:
         return question
     return f"{question} {' '.join(aliases)}"
@@ -829,12 +861,33 @@ def answer_with_agents(
 
     emit("retrieval_started")
     index = index_data if index_data is not None else load_index(root, index_path)
-    results = retrieve(index, retrieval_query_for(guard.normalized_text), top_k=top_k)
+    retrieval_query = retrieval_query_for(guard.normalized_text)
+    results = retrieve(index, retrieval_query, top_k=top_k)
     top_score = results[0]["score"] if results else 0.0
+    summary_candidates: list[dict[str, Any]] = []
+    retrieval_strategy = "primary"
+    if not results or top_score < CLARIFY_THRESHOLD:
+        summary_candidates = document_candidates(index, retrieval_query, top_k=5)
+        if summary_candidates and float(summary_candidates[0].get("score", 0.0)) >= DOCUMENT_FALLBACK_THRESHOLD:
+            summary_context = " ".join(
+                " ".join(
+                    str(candidate.get(key, ""))
+                    for key in ("source_title", "source_file", "file_summary")
+                )
+                for candidate in summary_candidates[:3]
+            )
+            fallback_query = f"{retrieval_query} {summary_context}"
+            fallback_results = retrieve(index, fallback_query, top_k=top_k)
+            fallback_top_score = fallback_results[0]["score"] if fallback_results else 0.0
+            if fallback_results and fallback_top_score > top_score:
+                results = fallback_results
+                top_score = fallback_top_score
+                retrieval_strategy = "document_summary_fallback"
     emit(
         "retrieval_done",
         {
             "top_score": top_score,
+            "strategy": retrieval_strategy,
             "source_count": len(results),
             "sources": [
                 {
@@ -852,7 +905,9 @@ def answer_with_agents(
         "guardrail": guard.__dict__,
         "retrieval": {
             "top_score": top_score,
+            "strategy": retrieval_strategy,
             "results": compact_results(results),
+            "document_candidates": compact_document_candidates(summary_candidates),
         },
     }
 

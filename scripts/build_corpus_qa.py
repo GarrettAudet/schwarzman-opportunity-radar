@@ -393,6 +393,8 @@ def public_citation_ref(source_file: SourceFile) -> str:
 def one_sentence_summary(title: str, text: str, source_path: str) -> str:
     title_text = title.replace("_", " ").replace("-", " ")
     title_text = re.sub(r"\s+", " ", title_text).strip(" .")
+    path_text = re.sub(r"[/\\_.-]+", " ", source_path)
+    title_keywords = top_keywords(f"{title_text} {path_text}", limit=6)
     sentences = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", text))
     candidates = [
         sentence.strip()
@@ -401,7 +403,10 @@ def one_sentence_summary(title: str, text: str, source_path: str) -> str:
     ]
     if candidates:
         sentence = candidates[0]
-        return sentence if sentence.endswith((".", "!", "?")) else f"{sentence}."
+        sentence = sentence if sentence.endswith((".", "!", "?")) else f"{sentence}."
+        if title_keywords:
+            return f"{title_text}. Topics: {', '.join(title_keywords)}. Extracted detail: {sentence}"
+        return f"{title_text}. Extracted detail: {sentence}"
 
     keyword_source = f"{title_text} {source_path}" if looks_garbled(text[:5000]) else f"{title_text} {source_path} {text}"
     keywords = top_keywords(keyword_source, limit=5)
