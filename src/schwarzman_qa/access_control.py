@@ -350,7 +350,9 @@ class WhatsAppAccessControl:
         user["last_seen_at"] = now_iso()
         if profile_name:
             user["profile_name"] = profile_name
-        if kind in {"feedback", "failed_question"}:
+        if kind == "question_answer":
+            user["answered_question_count"] = int(user.get("answered_question_count", 0) or 0) + 1
+        elif kind in {"feedback", "failed_question"}:
             user[f"{kind}_count"] = int(user.get(f"{kind}_count", 0) or 0) + 1
         event = {
             "id": secrets.token_hex(12),
@@ -408,6 +410,36 @@ class WhatsAppAccessControl:
             },
         )
 
+    def record_answered_question(
+        self,
+        question: str,
+        *,
+        wa_id: object,
+        phone_number: object = "",
+        profile_name: str = "",
+        response_type: str = "",
+        elapsed_ms: int = 0,
+        top_score: float = 0.0,
+        top_source: str = "",
+        sources: list[str] | None = None,
+        strategy: str = "",
+    ) -> None:
+        self.record_event(
+            "question_answer",
+            wa_id=wa_id,
+            phone_number=phone_number,
+            profile_name=profile_name,
+            text=question,
+            metadata={
+                "response_type": response_type,
+                "elapsed_ms": elapsed_ms,
+                "top_score": top_score,
+                "top_source": top_source,
+                "sources": list(sources or [])[:8],
+                "strategy": strategy,
+            },
+        )
+
     def conversation_memory(self, wa_id: object, phone_number: object = "") -> dict[str, Any]:
         wa_id_norm = normalize_identifier(wa_id)
         phone_norm = normalize_identifier(phone_number) or wa_id_norm
@@ -461,6 +493,7 @@ class WhatsAppAccessControl:
             "blocked": counts.get(BLOCKED, 0),
             "feedback_count": len(self.events("feedback", limit=MAX_STORED_EVENTS)),
             "failed_question_count": len(self.events("failed_question", limit=MAX_STORED_EVENTS)),
+            "answered_question_count": len(self.events("question_answer", limit=MAX_STORED_EVENTS)),
             "users": users,
         }
 
@@ -483,6 +516,7 @@ class WhatsAppAccessControl:
                 "notes": "",
                 "feedback_count": 0,
                 "failed_question_count": 0,
+                "answered_question_count": 0,
             },
         )
         if phone_number and not user.get("phone_number"):

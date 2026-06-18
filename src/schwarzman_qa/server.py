@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 import urllib.request
 
-from .access_control import WhatsAppAccessControl, access_control_from_env
+from .access_control import WhatsAppAccessControl, access_control_from_env, normalize_identifier, parse_identifier_set
 from .agents import CAPABILITY_BODY, answer_with_agents
 from .citations import public_citation_ref
 from .config import load_env
@@ -51,6 +51,16 @@ APPROVED_PROMPT = (
 )
 FEEDBACK_EMPTY_PROMPT = "Send feedback like: /feedback add more details about arrival transportation."
 FEEDBACK_RECEIVED_PROMPT = "Thanks - I saved that feedback for review."
+ADMIN_HELP_TEXT = (
+    "Admin commands:\n"
+    "/status - usage and service summary\n"
+    "/users - recent stored users\n"
+    "/failed - recent failed/not-found/out-of-scope questions\n"
+    "/answers - recent answered questions\n"
+    "/feedback - recent feedback\n"
+    "/blocked - blocked users\n"
+    "/approve <number>, /block <number>, /unblock <number>"
+)
 
 
 @dataclass
@@ -72,6 +82,7 @@ def make_response(result: dict[str, Any], elapsed_ms: int, debug: bool = False) 
         "answer": clean_visible_text(str(result.get("final_answer", ""))),
         "retrieval": {
             "top_score": result.get("retrieval", {}).get("top_score", 0),
+            "strategy": result.get("retrieval", {}).get("strategy", ""),
             "sources": [
                 {
                     "score": item.get("score", 0),
@@ -153,6 +164,57 @@ def top_retrieval_source(response: dict[str, Any]) -> tuple[float, str]:
     return float(first.get("score", 0) or 0), str(first.get("citation_ref", "") or first.get("source_file", ""))
 
 
+def retrieval_source_refs(response: dict[str, Any], limit: int = 8) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for item in response.get("retrieval", {}).get("sources", []):
+        ref = str(item.get("citation_ref") or item.get("source_file") or "").strip()
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        refs.append(ref)
+        if len(refs) >= limit:
+            break
+    return refs
+
+
+def log_answer_outcome(
+    access: WhatsAppAccessControl,
+    *,
+    question: str,
+    wa_id: str,
+    phone_number: str,
+    profile_name: str,
+    response: dict[str, Any],
+    elapsed_ms: int,
+) -> None:
+    response_type = str(response.get("response_type", ""))
+    top_score, top_source = top_retrieval_source(response)
+    if response_type in FAILED_RESPONSE_TYPES:
+        access.record_failed_question(
+            question,
+            wa_id=wa_id,
+            phone_number=phone_number,
+            profile_name=profile_name,
+            response_type=response_type,
+            top_score=top_score,
+            top_source=top_source,
+        )
+        return
+    access.record_answered_question(
+        question,
+        wa_id=wa_id,
+        phone_number=phone_number,
+        profile_name=profile_name,
+        response_type=response_type,
+        elapsed_ms=elapsed_ms,
+        top_score=top_score,
+        top_source=top_source,
+        sources=retrieval_source_refs(response),
+        strategy=str(response.get("retrieval", {}).get("strategy", "")),
+    )
+
+
 def conversation_memory_from_response(question: str, response: dict[str, Any]) -> dict[str, Any]:
     sources = []
     seen_refs: set[str] = set()
@@ -179,6 +241,153 @@ def conversation_memory_from_response(question: str, response: dict[str, Any]) -
         "last_topic": sources[0].get("source_title") or sources[0].get("citation_ref", ""),
         "last_sources": sources,
     }
+
+
+def is_admin_user(wa_id: object, phone_number: object = "") -> bool:
+    admin_wa_ids = parse_identifier_set(os.environ.get("WHATSAPP_ADMIN_WA_IDS", ""))
+    admin_numbers = parse_identifier_set(os.environ.get("WHATSAPP_ADMIN_NUMBERS", ""))
+    wa_id_norm = normalize_identifier(wa_id)
+    phone_norm = normalize_identifier(phone_number) or wa_id_norm
+    return bool((wa_id_norm and wa_id_norm in admin_wa_ids) or (phone_norm and phone_norm in admin_numbers))
+
+
+def is_admin_command(text: str) -> bool:
+    lowered = re.sub(r"\s+", " ", text.strip().lower())
+    if lowered.startswith("/admin"):
+        return True
+    command = lowered.split(" ", 1)[0]
+    return command in {
+        "/status",
+        "/users",
+        "/failed",
+        "/failures",
+        "/answers",
+        "/feedback",
+        "/blocked",
+        "/approve",
+        "/block",
+        "/unblock",
+        "/revoke",
+    }
+
+
+def compact_event_line(event: dict[str, Any]) -> str:
+    metadata = event.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    created_at = str(event.get("created_at", ""))[:19].replace("T", " ")
+    name = str(event.get("profile_name") or event.get("phone_number") or event.get("wa_id") or "unknown")
+    text = clean_visible_text(str(event.get("text", "")))[:180]
+    response_type = str(metadata.get("response_type", ""))
+    top_source = str(metadata.get("top_source", ""))
+    suffix = ""
+    if response_type:
+        suffix += f" [{response_type}]"
+    if top_source:
+        suffix += f" - {public_citation_ref(top_source)}"
+    return f"- {created_at} {name}{suffix}: {text}"
+
+
+def admin_command_response(
+    access: WhatsAppAccessControl,
+    state: ServerState,
+    text: str,
+    *,
+    wa_id: object,
+    phone_number: object = "",
+    profile_name: str = "",
+) -> str | None:
+    if not is_admin_command(text):
+        return None
+    raw_parts = re.sub(r"\s+", " ", text.strip()).split(" ")
+    raw_command = raw_parts[0].lower()
+    if raw_command == "/feedback" and len(raw_parts) > 1:
+        return None
+    if not is_admin_user(wa_id, phone_number):
+        if raw_command == "/feedback":
+            return None
+        return "That command is only available to bot admins."
+
+    parts = raw_parts
+    command = parts[0].lower()
+    if command == "/admin":
+        command = f"/{parts[1].lower()}" if len(parts) > 1 else "/admin"
+        args = parts[2:]
+    else:
+        args = parts[1:]
+
+    if command in {"/admin", "/help"}:
+        return ADMIN_HELP_TEXT
+
+    if command == "/status":
+        summary = access.summary()
+        return (
+            "Status:\n"
+            f"- index chunks: {state.index_data.get('chunk_count', 0)}\n"
+            f"- unique users: {summary['unique_users']}\n"
+            f"- approved: {summary['approved']}\n"
+            f"- pending: {summary['pending']}\n"
+            f"- blocked: {summary['blocked']}\n"
+            f"- answered questions: {summary.get('answered_question_count', 0)}\n"
+            f"- failed questions: {summary['failed_question_count']}\n"
+            f"- feedback items: {summary['feedback_count']}"
+        )
+
+    if command == "/users":
+        users = access.users()
+        if not users:
+            return "No stored users yet."
+        lines = ["Users:"]
+        for user in users[:25]:
+            lines.append(
+                f"- {user.get('status', '')}: {user.get('profile_name') or 'unknown'} "
+                f"phone={user.get('phone_number', '')} failed={user.get('failed_question_count', 0)}"
+            )
+        if len(users) > 25:
+            lines.append(f"- Plus {len(users) - 25} more.")
+        return "\n".join(lines)
+
+    if command == "/blocked":
+        blocked = access.users(status="blocked")
+        if not blocked:
+            return "No blocked users."
+        return "Blocked users:\n" + "\n".join(
+            f"- {user.get('profile_name') or 'unknown'} phone={user.get('phone_number', '')}"
+            for user in blocked[:25]
+        )
+
+    if command in {"/failed", "/failures"}:
+        events = access.events(kind="failed_question", limit=10)
+        if not events:
+            return "No failed questions logged."
+        return "Recent failed questions:\n" + "\n".join(compact_event_line(event) for event in events)
+
+    if command == "/answers":
+        events = access.events(kind="question_answer", limit=10)
+        if not events:
+            return "No answered questions logged."
+        return "Recent answered questions:\n" + "\n".join(compact_event_line(event) for event in events)
+
+    if command == "/feedback" and not args:
+        events = access.events(kind="feedback", limit=10)
+        if not events:
+            return "No feedback logged."
+        return "Recent feedback:\n" + "\n".join(compact_event_line(event) for event in events)
+
+    if command in {"/approve", "/block", "/unblock", "/revoke"}:
+        if not args:
+            return f"Usage: {command} <number>"
+        target = args[0]
+        if command == "/approve":
+            access.approve(target, target, profile_name=target, source="admin")
+            return f"Approved {target}."
+        if command == "/block":
+            access.block(target, target, profile_name=target, notes=f"Blocked by {profile_name or wa_id}")
+            return f"Blocked {target}."
+        access.revoke(target, target, notes=f"Unblocked by {profile_name or wa_id}")
+        return f"Moved {target} back to pending."
+
+    return ADMIN_HELP_TEXT
 
 
 def default_index_path(root: Path) -> Path:
@@ -530,6 +739,18 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            admin_response = admin_command_response(
+                access,
+                self.state,
+                text,
+                wa_id=message.wa_id,
+                phone_number=message.phone_number,
+                profile_name=message.profile_name,
+            )
+            if admin_response is not None:
+                send_twilio_text(message.from_address, admin_response, from_address=message.to_address)
+                return
+
             if is_help_request(text):
                 send_twilio_text(message.from_address, HELP_TEXT, from_address=message.to_address)
                 return
@@ -570,17 +791,25 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             answer = response.get("answer") or NOT_FOUND_TEXT
             response_type = str(response.get("response_type", ""))
             if response_type in FAILED_RESPONSE_TYPES:
-                top_score, top_source = top_retrieval_source(response)
-                access.record_failed_question(
-                    text,
+                log_answer_outcome(
+                    access,
+                    question=text,
                     wa_id=message.wa_id,
                     phone_number=message.phone_number,
                     profile_name=message.profile_name,
-                    response_type=response_type,
-                    top_score=top_score,
-                    top_source=top_source,
+                    response=response,
+                    elapsed_ms=elapsed_ms,
                 )
             else:
+                log_answer_outcome(
+                    access,
+                    question=text,
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                    response=response,
+                    elapsed_ms=elapsed_ms,
+                )
                 memory_update = conversation_memory_from_response(text, response)
                 if memory_update:
                     access.update_conversation_memory(
@@ -650,6 +879,18 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            admin_response = admin_command_response(
+                access,
+                self.state,
+                text,
+                wa_id=message.wa_id,
+                phone_number=message.phone_number,
+                profile_name=message.profile_name,
+            )
+            if admin_response is not None:
+                send_text(message.wa_id, admin_response, reply_to_message_id=message.message_id)
+                return
+
             if is_help_request(text):
                 send_text(message.wa_id, HELP_TEXT, reply_to_message_id=message.message_id)
                 return
@@ -690,17 +931,25 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             answer = response.get("answer") or NOT_FOUND_TEXT
             response_type = str(response.get("response_type", ""))
             if response_type in FAILED_RESPONSE_TYPES:
-                top_score, top_source = top_retrieval_source(response)
-                access.record_failed_question(
-                    text,
+                log_answer_outcome(
+                    access,
+                    question=text,
                     wa_id=message.wa_id,
                     phone_number=message.phone_number,
                     profile_name=message.profile_name,
-                    response_type=response_type,
-                    top_score=top_score,
-                    top_source=top_source,
+                    response=response,
+                    elapsed_ms=elapsed_ms,
                 )
             else:
+                log_answer_outcome(
+                    access,
+                    question=text,
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                    response=response,
+                    elapsed_ms=elapsed_ms,
+                )
                 memory_update = conversation_memory_from_response(text, response)
                 if memory_update:
                     access.update_conversation_memory(

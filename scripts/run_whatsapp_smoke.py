@@ -5,6 +5,7 @@ import csv
 import json
 import sys
 import time
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -83,8 +84,10 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "passed",
         "response_type",
         "expected_response_type",
+        "strategy",
         "top_score",
         "top_source",
+        "top_sources",
         "type_ok",
         "source_ok",
         "must_contain_ok",
@@ -98,6 +101,62 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writeheader()
         for row in rows:
             writer.writerow({key: row.get(key, "") for key in fieldnames})
+
+
+def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
+    total = len(rows)
+    passed = sum(1 for row in rows if row["passed"])
+    by_category: dict[str, Counter[str]] = defaultdict(Counter)
+    for row in rows:
+        category = str(row.get("category") or "uncategorized")
+        by_category[category]["cases"] += 1
+        by_category[category]["passed"] += int(bool(row["passed"]))
+
+    lines = [
+        "# WhatsApp Smoke Report",
+        "",
+        f"- Cases: {total}",
+        f"- Passed: {passed}/{total}",
+        "",
+        "## By Category",
+    ]
+    for category, counts in sorted(by_category.items()):
+        lines.append(f"- {category}: {counts['passed']}/{counts['cases']}")
+
+    failures = [row for row in rows if not row["passed"]]
+    lines.extend(["", "## Failures"])
+    if failures:
+        for row in failures:
+            reasons = []
+            if not row["type_ok"]:
+                reasons.append("response_type")
+            if not row["source_ok"]:
+                reasons.append("source")
+            if not row["must_contain_ok"]:
+                reasons.append("must_contain")
+            if not row["must_not_contain_ok"]:
+                reasons.append("must_not_contain")
+            lines.append(f"- `{row['id']}`: {', '.join(reasons)}")
+            lines.append(f"  - Question: {row['question']}")
+            lines.append(f"  - Type: {row['response_type']} expected {row['expected_response_type']}")
+            lines.append(f"  - Strategy: {row.get('strategy', '')}")
+            lines.append(f"  - Top source: {row.get('top_source', '')}")
+            lines.append(f"  - Answer: {row.get('answer_preview', '')}")
+    else:
+        lines.append("- No failures.")
+
+    lines.extend(["", "## Slowest Cases"])
+    for row in sorted(rows, key=lambda item: int(item.get("elapsed_ms", 0) or 0), reverse=True)[:10]:
+        lines.append(
+            f"- `{row['id']}`: {row['elapsed_ms']} ms, type={row['response_type']}, strategy={row.get('strategy', '')}"
+        )
+
+    lines.extend(["", "## Route And Source Preview"])
+    for row in rows:
+        lines.append(
+            f"- `{row['id']}`: type={row['response_type']}, strategy={row.get('strategy', '')}, top={row.get('top_source', '')}"
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> int:
@@ -126,6 +185,7 @@ def main() -> int:
     stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     csv_path = out_dir / f"whatsapp-smoke-{stamp}.csv"
     json_path = out_dir / f"whatsapp-smoke-{stamp}.json"
+    md_path = out_dir / f"whatsapp-smoke-{stamp}.md"
 
     rows: list[dict[str, Any]] = []
     full_results: list[dict[str, Any]] = []
@@ -145,9 +205,14 @@ def main() -> int:
         expected_response_type = str(case.get("expected_response_type", "answer"))
         top_results = result.get("retrieval", {}).get("results", [])
         top_source = ""
+        top_sources: list[str] = []
         if top_results:
             first = top_results[0]
             top_source = str(first.get("citation_ref") or first.get("source_file") or first.get("source_title") or "")
+            top_sources = [
+                str(item.get("citation_ref") or item.get("source_file") or item.get("source_title") or "")
+                for item in top_results[:5]
+            ]
 
         type_ok = expected_type_ok(response_type, expected_response_type, args.llm)
         source_ok = source_hit(result, list(case.get("expected_source_contains", [])))
@@ -166,8 +231,10 @@ def main() -> int:
             "passed": passed,
             "response_type": response_type,
             "expected_response_type": expected_response_type,
+            "strategy": result.get("retrieval", {}).get("strategy", ""),
             "top_score": result.get("retrieval", {}).get("top_score", 0),
             "top_source": top_source,
+            "top_sources": " || ".join(top_sources),
             "type_ok": type_ok,
             "source_ok": source_ok,
             "must_contain_ok": must_contain_ok,
@@ -179,6 +246,7 @@ def main() -> int:
         rows.append(row)
         full_results.append({"case": case, "result": result, "formatted_answer": answer, "row": row})
         write_csv(csv_path, rows)
+        write_markdown(md_path, rows)
         json_path.write_text(json.dumps(full_results, ensure_ascii=False, indent=2), encoding="utf-8")
 
         status = "PASS" if passed else "FAIL"
@@ -202,6 +270,7 @@ def main() -> int:
                 reasons.append("must_not_contain")
             print(f"- {row['id']}: {', '.join(reasons)} | type={row['response_type']} | top={row['top_source']}")
     print(f"Wrote {csv_path}")
+    print(f"Wrote {md_path}")
     print(f"Wrote {json_path}")
     return 0 if passed_count == len(rows) else 1
 

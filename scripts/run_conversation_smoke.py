@@ -83,6 +83,50 @@ def memory_from_result(question: str, result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def write_markdown(path: Path, rows: list[dict[str, Any]], failures: list[str]) -> None:
+    total = len(rows)
+    passed = sum(1 for row in rows if row["passed"])
+    lines = [
+        "# Conversation Smoke Report",
+        "",
+        f"- Turns: {total}",
+        f"- Passed: {passed}/{total}",
+        "",
+        "## Failures",
+    ]
+    if failures:
+        for failure in failures:
+            failed_row = next(
+                (
+                    row
+                    for row in rows
+                    if f"{row['case_id']} turn {row['turn']}" == failure
+                ),
+                {},
+            )
+            lines.append(f"- `{failure}`")
+            if failed_row:
+                lines.append(f"  - Question: {failed_row.get('question', '')}")
+                lines.append(f"  - Type: {failed_row.get('response_type', '')}")
+                lines.append(f"  - Answer: {str(failed_row.get('answer_preview', '')).replace(chr(10), ' ')}")
+    else:
+        lines.append("- No failures.")
+
+    lines.extend(["", "## Route Preview"])
+    for row in rows:
+        retrieval = row.get("retrieval", {})
+        if not isinstance(retrieval, dict):
+            retrieval = {}
+        top_sources = []
+        for item in retrieval.get("results", [])[:3]:
+            top_sources.append(str(item.get("citation_ref") or item.get("source_file") or ""))
+        lines.append(
+            f"- `{row['case_id']}` turn {row['turn']}: type={row['response_type']}, "
+            f"strategy={retrieval.get('strategy', '')}, top={'; '.join(top_sources)}"
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run multi-turn conversation smoke tests.")
     parser.add_argument("--root", default=".", help="Repository root")
@@ -148,9 +192,13 @@ def main() -> int:
 
     out_dir = root / "data" / "evals" / "runs"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"conversation-smoke-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}.json"
+    stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    out_path = out_dir / f"conversation-smoke-{stamp}.json"
+    md_path = out_dir / f"conversation-smoke-{stamp}.md"
     out_path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_markdown(md_path, rows, failures)
     print(f"Wrote {out_path}")
+    print(f"Wrote {md_path}")
     if failures:
         print("Failures:")
         for failure in failures:

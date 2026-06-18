@@ -141,6 +141,10 @@ def main() -> int:
     parser.add_argument("--path", default=os.environ.get("GITHUB_INDEX_PATH", DEFAULT_INDEX_PATH))
     parser.add_argument("--branch", default=os.environ.get("GITHUB_INDEX_REF", DEFAULT_INDEX_BRANCH))
     parser.add_argument("--message", default="Update local index")
+    parser.add_argument("--upload-readme", action="store_true", help="Also upload docs/private-index-repo-readme.md as README.md.")
+    parser.add_argument("--readme-only", action="store_true", help="Upload only the private repo README, not the index.")
+    parser.add_argument("--readme-source", default="docs/private-index-repo-readme.md")
+    parser.add_argument("--readme-path", default="README.md")
     parser.add_argument(
         "--token-env",
         default="GITHUB_INDEX_UPLOAD_TOKEN",
@@ -163,16 +167,34 @@ def main() -> int:
             )
             return 2
 
-    index_path = prepare_deploy_index(root, args.index, refresh=not args.no_refresh)
-    upload_index(
-        index_path=index_path,
-        repo=args.repo,
-        repo_path=args.path,
-        branch=args.branch,
-        token=token,
-        message=args.message,
-        dry_run=args.dry_run,
-    )
+    if args.readme_only:
+        args.upload_readme = True
+
+    if not args.readme_only:
+        index_path = prepare_deploy_index(root, args.index, refresh=not args.no_refresh)
+        upload_index(
+            index_path=index_path,
+            repo=args.repo,
+            repo_path=args.path,
+            branch=args.branch,
+            token=token,
+            message=args.message,
+            dry_run=args.dry_run,
+        )
+
+    if args.upload_readme:
+        readme_source = (root / args.readme_source).resolve()
+        if not readme_source.exists():
+            raise FileNotFoundError(f"README source does not exist: {readme_source}")
+        upload_index(
+            index_path=readme_source,
+            repo=args.repo,
+            repo_path=args.readme_path,
+            branch=args.branch,
+            token=token,
+            message="Update private index README",
+            dry_run=args.dry_run,
+        )
     return 0
 
 

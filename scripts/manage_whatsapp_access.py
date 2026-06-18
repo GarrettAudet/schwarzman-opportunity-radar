@@ -18,6 +18,7 @@ def print_user(user: dict[str, object]) -> None:
         f"wa_id={user.get('wa_id', '')} "
         f"phone={user.get('phone_number', '')} "
         f"name={user.get('profile_name', '')} "
+        f"answered={user.get('answered_question_count', 0)} "
         f"feedback={user.get('feedback_count', 0)} "
         f"failed={user.get('failed_question_count', 0)} "
         f"source={user.get('source', '')}"
@@ -48,7 +49,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Manage WhatsApp Q&A bot access.")
     parser.add_argument(
         "action",
-        choices=["list", "summary", "blocked", "feedback", "failures", "approve", "block", "revoke", "remove", "check"],
+        choices=[
+            "list",
+            "summary",
+            "blocked",
+            "feedback",
+            "failures",
+            "answers",
+            "approve",
+            "block",
+            "revoke",
+            "remove",
+            "check",
+        ],
     )
     parser.add_argument("--root", default=".", help="Repository root")
     parser.add_argument("--wa-id", default="", help="WhatsApp wa_id/from value")
@@ -87,7 +100,8 @@ def main() -> int:
             f"pending={summary['pending']} "
             f"blocked={summary['blocked']} "
             f"feedback={summary['feedback_count']} "
-            f"failed_questions={summary['failed_question_count']}"
+            f"failed_questions={summary['failed_question_count']} "
+            f"answered_questions={summary.get('answered_question_count', 0)}"
         )
         for user in summary["users"]:
             print_user(user)
@@ -105,8 +119,12 @@ def main() -> int:
             print_user(user)
         return 0
 
-    if args.action in {"feedback", "failures"}:
-        kind = "feedback" if args.action == "feedback" else "failed_question"
+    if args.action in {"feedback", "failures", "answers"}:
+        kind = {
+            "feedback": "feedback",
+            "failures": "failed_question",
+            "answers": "question_answer",
+        }[args.action]
         events = access.events(kind=kind, limit=args.limit)
         if args.json:
             print(json.dumps(events, ensure_ascii=False, indent=2))
