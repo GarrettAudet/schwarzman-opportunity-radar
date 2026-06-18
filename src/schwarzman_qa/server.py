@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import urllib.request
 
 from .access_control import WhatsAppAccessControl, access_control_from_env
-from .agents import answer_with_agents
+from .agents import CAPABILITY_BODY, answer_with_agents
 from .citations import public_citation_ref
 from .config import load_env
 from .policy import NOT_FOUND_TEXT, clean_visible_text, format_chat_answer
@@ -39,12 +39,7 @@ DEFAULT_PORT = 8765
 API_TOKEN_ENV = "SCHWARZMAN_API_TOKEN"
 FAILED_RESPONSE_TYPES = {"not_found", "out_of_scope", "safety_refusal", "agent_error", "server_error"}
 HELP_TEXT = (
-    "I answer questions from available Schwarzman/Tsinghua student resources, "
-    "including Blackboard, Rencai, and reviewed transcript materials.\n\n"
-    "Try questions about visas, packing, arrival logistics, transcripts, "
-    "internship annotation, or career resources.\n\n"
-    "Use /feedback followed by any proposed additions or fixes you'd like to "
-    "suggest for this chatbot."
+    CAPABILITY_BODY
 )
 PASSWORD_PROMPT = (
     f"{HELP_TEXT}\n\n"
@@ -139,12 +134,14 @@ def is_help_request(text: str) -> bool:
     if normalized in {"/help", "help", "/start", "start"}:
         return True
     help_patterns = [
-        r"\bwhat (questions|kinds of questions|topics) can (you|this|the bot)\b",
-        r"\bwhat can (you|this bot) (answer|do|help with)\b",
-        r"\bhow (do|can) i use (you|this|the bot)\b",
+        r"\bwhat (questions|kinds of questions|types of questions|topics) can (you|it|this|this bot|the bot)\b",
+        r"\bwhat can (you|it|this bot|the bot) (answer|do|help with|search)\b",
+        r"\bwhat (resources|materials|sources|documents|docs) can (you|it|this bot|the bot) (search|use|answer from)\b",
+        r"\bwhat (resources|materials|sources|documents|docs) (are there|are available|do you have|can (you|it|this bot|the bot) search)\b",
         r"\bwhat (are you|is this bot) for\b",
-        r"\bwhat schwarzman.*questions can (you|this|the bot)\b",
-        r"\bwhat tsinghua.*questions can (you|this|the bot)\b",
+        r"\bhow (do|can) i use (you|it|this|this bot|the bot)\b",
+        r"\bwhat schwarzman.*questions can (you|it|this|this bot|the bot)\b",
+        r"\bwhat tsinghua.*questions can (you|it|this|this bot|the bot)\b",
     ]
     return any(re.search(pattern, normalized) for pattern in help_patterns)
 
