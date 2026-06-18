@@ -244,6 +244,11 @@ on the free instance filesystem for this file. Use static env allow/block lists
 for small pilots, or use the private GitHub-backed JSON store described in
 `data/whatsapp/README.md`.
 
+For the hosted bot, the private GitHub access store should be the source of
+truth for WhatsApp identities, approval status, block status, feedback, and
+failed/not-found/out-of-scope question logs. The webhook checks that store
+before answering every message.
+
 Useful env vars:
 
 ```text
@@ -258,6 +263,10 @@ WHATSAPP_ALLOWED_NUMBERS=<optional comma-separated phone allowlist>
 WHATSAPP_BLOCKED_NUMBERS=<optional comma-separated phone blocklist>
 WHATSAPP_ALLOWED_WA_IDS=<optional comma-separated WhatsApp ID allowlist>
 WHATSAPP_BLOCKED_WA_IDS=<optional comma-separated WhatsApp ID blocklist>
+GITHUB_ACCESS_REPO=GarrettAudet/SchwarzmanQnA-Index
+GITHUB_ACCESS_PATH=whatsapp-access.json
+GITHUB_ACCESS_REF=main
+GITHUB_ACCESS_TOKEN=<fine-grained token with contents read/write for the private repo>
 SCHWARZMAN_API_TOKEN=<optional bearer token for direct /ask API calls>
 ```
 
