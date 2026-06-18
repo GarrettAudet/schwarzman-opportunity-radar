@@ -54,6 +54,17 @@ FIX_FLAG_FRAGMENTS = (
     "not_ready",
 )
 
+REFRESH_FIELDS = (
+    "qa_flags",
+    "summary",
+    "detected_type",
+    "status",
+    "text_path",
+    "chunks",
+    "chars",
+    "size_bytes",
+)
+
 
 def read_csv(path: Path) -> list[dict[str, str]]:
     if not path.exists():
@@ -172,6 +183,28 @@ def update_review_from_report(
         old_sha = str(existing.get("sha256", "")).strip()
         new_sha = str(report_row.get("sha256", "")).strip()
         if old_sha and new_sha and old_sha == new_sha:
+            refreshed = review_row_from_report(
+                report_row,
+                decision=str(existing.get("decision", "")),
+                notes=str(existing.get("notes", "")),
+            )
+            changed_fields = [
+                field
+                for field in REFRESH_FIELDS
+                if str(existing.get(field, "")).strip() != str(refreshed.get(field, "")).strip()
+            ]
+            if not changed_fields:
+                continue
+            existing.update(refreshed)
+            intake_rows.append(
+                intake_row(
+                    "metadata_refreshed",
+                    existing,
+                    previous_decision=str(existing.get("decision", "")),
+                    previous_sha=old_sha,
+                    action=f"Extraction metadata refreshed: {', '.join(changed_fields)}.",
+                )
+            )
             continue
 
         previous_decision = str(existing.get("decision", "")).strip()
@@ -283,7 +316,7 @@ def write_intake_report(
         "## Summary",
         "",
     ]
-    for status in ("new", "changed", "missing_from_sources"):
+    for status in ("new", "changed", "metadata_refreshed", "missing_from_sources"):
         lines.append(f"- {status}: {counts.get(status, 0)}")
     fix_rows = [row for row in intake_rows if row.get("decision") == "needs_fix"]
     review_rows = [row for row in intake_rows if row.get("decision") == "review"]
@@ -392,6 +425,7 @@ def main() -> int:
     print(f"Review CSV: {review_path}")
     print(f"New: {counts.get('new', 0)}")
     print(f"Changed: {counts.get('changed', 0)}")
+    print(f"Metadata refreshed: {counts.get('metadata_refreshed', 0)}")
     print(f"Missing from sources: {counts.get('missing_from_sources', 0)}")
     print(f"Wrote {intake_csv}")
     print(f"Wrote {intake_md}")

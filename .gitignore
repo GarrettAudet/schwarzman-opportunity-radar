@@ -27,12 +27,14 @@ data/corpus/chunks/**
 data/corpus/reports/**
 data/corpus/index/**
 data/corpus/review/*.csv
+data/corpus/manual_text/**
 !data/corpus/README.md
 !data/corpus/text/.gitkeep
 !data/corpus/chunks/.gitkeep
 !data/corpus/reports/.gitkeep
 !data/corpus/index/README.md
 !data/corpus/review/README.md
+!data/corpus/manual_text/README.md
 
 # Eval cases may contain source names or derived corpus expectations. Keep
 # local unless/until they are sanitized.

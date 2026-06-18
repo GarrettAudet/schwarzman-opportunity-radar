@@ -88,6 +88,8 @@ RESOURCE_SCOPE_TERMS = {
     "health check",
     "housing",
     "insurance",
+    "interview",
+    "interviews",
     "internship",
     "internship annotation",
     "jw202",
@@ -136,6 +138,7 @@ RESOURCE_SCOPE_TERMS = {
     "transportation",
     "travel to china",
     "visa",
+    "video interview",
     "vaccination",
     "wechat",
     "webinar",
@@ -162,6 +165,8 @@ RESOURCE_SCOPE_TERMS = {
     "work authorization",
     "work permit",
     "work permits",
+    "wi-fi",
+    "wifi",
     "x1",
 }
 
@@ -700,6 +705,13 @@ def has_result_text(results: list[dict[str, Any]], terms: list[str]) -> bool:
 def should_not_found_for_irrelevant_results(question: str, results: list[dict[str, Any]]) -> bool:
     lowered = question.lower()
     if re.search(r"\bwhere\b.*\b(rent|rental|apartment)\b|\bwhich neighborhoods?\b", lowered):
+        if not has_result_text(results, ["renting an apartment in china", "apartment complexes near tsinghua"]):
+            return True
+    if re.search(r"\b(alipay|wechat pay|payment setup)\b", lowered) and not has_result_text(
+        results, ["alipay", "wechat pay", "payment setup"]
+    ):
+        return True
+    if re.search(r"\b(bank account|banking)\b", lowered) and not has_result_text(results, ["bank account"]):
         return True
     topic_terms = [
         (r"\b(apartment|rent|rental|renting)\b", ["apartment", "rent", "rental", "renting"]),
@@ -730,6 +742,8 @@ def retrieval_query_for(question: str) -> str:
         aliases.extend(["Blackboard To-Do capstone preliminary interest survey prerequisite course exemption deadline mandatory action item"])
     if re.search(r"\bjw\s*202\b|\bjw202\b|\badmission notice\b", lowered):
         aliases.extend(["X1 student visa JW202 Tsinghua University Admission Notice QNHR admission portal Visa FAQ 2026"])
+    if re.search(r"\bvisa\b", lowered) and re.search(r"\b(extend|extension|renew|renewal|re-issuance|reissuance)\b", lowered):
+        aliases.extend(["Visa Extension duration of stay local public security authority entry exit bureau Zijin Building"])
     if re.search(r"\btodo\b|\bto do\b", lowered) and "to-do" not in lowered:
         aliases.append("to-do")
     if re.search(r"\bresidence permits\b", lowered):
@@ -746,6 +760,8 @@ def retrieval_query_for(question: str) -> str:
         aliases.extend(["nonprofit", "NGO", "public sector"])
     if re.search(r"\bfinance\b|\binvestment banking\b", lowered):
         aliases.extend(["Resource Guide - Finance Role investment banking finance career resources"])
+    if re.search(r"\bvideo interview\b|\bwi-?fi\b", lowered):
+        aliases.extend(["Instructions for Video Interview Tsinghua Wi-Fi SC VC Wi-Fi team room B2"])
     if not aliases:
         return question
     return f"{question} {' '.join(aliases)}"
@@ -763,7 +779,7 @@ def clarification_answer(question: str, results: list[dict[str, Any]]) -> str | 
     elif "before arriving" in lowered:
         clarification_options = ["packing", "visa steps", "WeChat setup", "Blackboard access"]
     elif re.search(r"\bvisa\b", lowered) and not re.search(
-        r"\b(x1|student|work|extension|stay|residence|internship|type|types|introduction|brief)\b",
+        r"\b(x1|student|work|extend|extension|renew|renewal|re-issuance|reissuance|stay|residence|internship|type|types|introduction|brief)\b",
         lowered,
     ):
         clarification_options = ["X1 student visa", "visa extension", "work visa after graduation", "internship annotation"]

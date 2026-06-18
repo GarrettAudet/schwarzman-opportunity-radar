@@ -390,6 +390,47 @@ def public_citation_ref(source_file: SourceFile) -> str:
     return f"{source_file.source}/{source_file.source_path}".replace("\\", "/")
 
 
+def manual_text_override_path(root: Path, source_file: SourceFile) -> Path | None:
+    base = root / "data" / "corpus" / "manual_text" / source_file.source / Path(source_file.source_path)
+    for candidate in (base.with_suffix(base.suffix + ".md"), base.with_suffix(base.suffix + ".txt")):
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def extract_manual_text_override(root: Path, source_file: SourceFile, detected_type: str) -> ExtractResult | None:
+    override_path = manual_text_override_path(root, source_file)
+    if override_path is None:
+        return None
+    try:
+        text = clean_text(override_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        text = clean_text(override_path.read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        return ExtractResult(
+            "error",
+            error=f"Manual text override could not be read: {exc}",
+            detected_type=f"{detected_type}+manual_text",
+            notes=["manual_text_override_error"],
+            metadata={"manual_text_path": rel_posix(override_path, root)},
+        )
+    if not text:
+        return ExtractResult(
+            "review",
+            error="Manual text override is empty",
+            detected_type=f"{detected_type}+manual_text",
+            notes=["manual_text_override_empty"],
+            metadata={"manual_text_path": rel_posix(override_path, root)},
+        )
+    return ExtractResult(
+        "ok",
+        text=text,
+        detected_type=f"{detected_type}+manual_text",
+        notes=["manual_text_override"],
+        metadata={"manual_text_path": rel_posix(override_path, root), "manual_text_chars": len(text)},
+    )
+
+
 def one_sentence_summary(title: str, text: str, source_path: str) -> str:
     title_text = title.replace("_", " ").replace("-", " ")
     title_text = re.sub(r"\s+", " ", title_text).strip(" .")
@@ -596,7 +637,9 @@ def main() -> int:
             duplicate_of = duplicates[0].display_path
 
         detected_type = detect_type(source_file.path)
-        result = extractor_for(detected_type, use_ocr=args.ocr)(source_file.path)
+        result = extract_manual_text_override(root, source_file, detected_type)
+        if result is None:
+            result = extractor_for(detected_type, use_ocr=args.ocr)(source_file.path)
         if not result.detected_type:
             result.detected_type = detected_type
         text = result.text

@@ -11,16 +11,18 @@
 {"id":"residence_permit_student","category":"visa","question":"What residence permit do students need after arriving in China?","expected_source_contains":["A Brief Introduction to Chinese Visa Types","Visa -Stay Permit - Residence Permit"]}
 {"id":"work_authorization_china","category":"visa","question":"How do I get work authorization in China after graduation?","expected_source_contains":["Work Authorization in China","Work Permit"]}
 {"id":"stay_permit_extension","category":"visa","question":"How can I get a 30 day stay permit extension if my student visa is expiring?","expected_source_contains":["Work Authorization in China","Visa -Stay Permit - Residence Permit"]}
+{"id":"visa_extension","category":"visa","question":"How can I extend my visa in China?","expected_source_contains":["Visa Extension.pdf"]}
 {"id":"internship_annotation_docs","category":"internship","question":"What documents are needed for internship annotation?","expected_source_contains":["Guide for Internship Annotation Application"]}
 {"id":"internship_annotation_forms","category":"internship","question":"Where are the internship annotation application forms?","expected_source_contains":["Application Form Templates","Internship Annotation"]}
 {"id":"packing_general","category":"arrival","question":"Any advice for packing?","expected_source_contains":["Packing List"]}
 {"id":"packing_medicine","category":"arrival","question":"What medicine or allergy supplies should I bring?","expected_source_contains":["Packing List","C11 International Scholars Webinar"]}
+{"id":"apartment_renting","category":"arrival","question":"Where should I rent an apartment near Tsinghua?","expected_source_contains":["Renting an Apartment in China"]}
 {"id":"wechat_registration","category":"arrival","question":"How do I register for WeChat?","expected_source_contains":["WeChat Registration FAQ","C11 International Scholars Webinar"]}
 {"id":"wechat_group","category":"arrival","question":"How do I join the C11 WeChat group?","expected_source_contains":["WeChat Registration FAQ","C11 International Scholars Webinar"]}
-{"id":"bank_alipay","category":"arrival","question":"What resources explain banking, Alipay, or payment setup in China?","expected_source_contains":["Staying in China","Alipay","Bank"]}
 {"id":"mandarin_programs","category":"language","question":"Any recommended content to learn Mandarin?","expected_source_contains":["FAQ for IUP_ CET_ CLP","Language Program"]}
 {"id":"language_program_comparison","category":"language","question":"How do IUP, CET, and CLP compare?","expected_source_contains":["FAQ for IUP_ CET_ CLP"]}
 {"id":"transcript_current","category":"academics","question":"How do current scholars request transcripts?","expected_source_contains":["Current_scholar_requests_for_transcripts_and_verifications"]}
+{"id":"etranscript_download","category":"academics","question":"How do I download the official e-transcript for free?","expected_source_contains":["Instruction_on_Downloading_Official_E-Transcipt_for_Free_v.pdf"]}
 {"id":"transcript_alumni","category":"academics","question":"How do alumni request transcripts or verification letters?","expected_source_contains":["Alumni","transcripts_and_verifications"]}
 {"id":"degree_verification","category":"academics","question":"How can I verify my degree certificate?","expected_source_contains":["Verifying Degree Certificate"]}
 {"id":"enrollment_letter","category":"academics","question":"How do I request an enrollment letter?","expected_source_contains":["Enrollment","Letter Request","transcripts_and_verifications"]}
@@ -28,6 +30,7 @@
 {"id":"cover_letter_guidance","category":"career","question":"Do you have cover letter guidance?","expected_source_contains":["Cover_Letter_Guide","Cover Letters"]}
 {"id":"linkedin_profile","category":"career","question":"What LinkedIn profile resources are there?","expected_source_contains":["RockYourProfile","LinkedIn"]}
 {"id":"consulting_interview","category":"career","question":"How should I prepare for consulting case interviews?","expected_source_contains":["Consulting_and_Case_Interview_Preparation","Resource Guide - Consulting"]}
+{"id":"video_interview_wifi","category":"career","question":"What Wi-Fi should I use for a video interview?","expected_source_contains":["Instructions for Video interview-1016.pdf"]}
 {"id":"nonprofit_careers","category":"career","question":"What resources are there for nonprofit or NGO careers?","expected_source_contains":["NGOs_ Nonprofits","Nonprofit and NGO"]}
 {"id":"government_policy_research","category":"career","question":"What resources exist for government policy or research careers?","expected_source_contains":["Government.Policy.Research","Government","Policy"]}
 {"id":"for_profit_roles","category":"career","question":"What did the company roles career readiness webinar cover?","expected_source_contains":["For Profit Corporation and Company Roles"]}
