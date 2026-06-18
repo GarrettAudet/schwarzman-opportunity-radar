@@ -261,6 +261,13 @@ Run the WhatsApp-style behavior smoke test before deploy:
 python scripts\run_whatsapp_smoke.py --root .
 ```
 
+Run the multi-turn conversation smoke test when changing follow-up handling,
+memory, or comparison behavior:
+
+```powershell
+python scripts\run_conversation_smoke.py --root .
+```
+
 For a representative live-model gate through OpenRouter:
 
 ```powershell

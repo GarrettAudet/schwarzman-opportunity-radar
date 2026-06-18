@@ -19,6 +19,7 @@ BLOCKED = "blocked"
 PENDING = "pending"
 MAX_STORED_EVENTS = 500
 MAX_EVENT_TEXT_CHARS = 1200
+MAX_MEMORY_SOURCES = 6
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,7 @@ def parse_identifier_set(value: str) -> set[str]:
 
 
 def empty_payload() -> dict[str, Any]:
-    return {"version": 2, "updated_at": now_iso(), "users": {}, "events": []}
+    return {"version": 3, "updated_at": now_iso(), "users": {}, "events": []}
 
 
 class FileAccessStore:
@@ -178,6 +179,14 @@ def merge_user(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, 
         int(existing.get("failed_question_count", 0) or 0),
         int(incoming.get("failed_question_count", 0) or 0),
     )
+    existing_memory = existing.get("conversation_memory")
+    incoming_memory = incoming.get("conversation_memory")
+    if isinstance(existing_memory, dict) and isinstance(incoming_memory, dict):
+        existing_updated = str(existing_memory.get("updated_at", ""))
+        incoming_updated = str(incoming_memory.get("updated_at", ""))
+        merged["conversation_memory"] = incoming_memory if incoming_updated >= existing_updated else existing_memory
+    elif isinstance(existing_memory, dict) and not incoming_memory:
+        merged["conversation_memory"] = existing_memory
     return merged
 
 
@@ -189,6 +198,34 @@ def event_key(event: dict[str, Any]) -> str:
         str(event.get(key, ""))
         for key in ("created_at", "kind", "wa_id", "phone_number", "text")
     )
+
+
+def sanitize_conversation_memory(memory: dict[str, Any]) -> dict[str, Any]:
+    sources: list[dict[str, str]] = []
+    for raw_source in memory.get("last_sources", []):
+        if not isinstance(raw_source, dict):
+            continue
+        ref = str(raw_source.get("citation_ref") or raw_source.get("source_file") or "").strip()
+        if not ref:
+            continue
+        sources.append(
+            {
+                "citation_ref": ref[:500],
+                "source_file": str(raw_source.get("source_file") or ref).strip()[:500],
+                "source_title": str(raw_source.get("source_title") or "").strip()[:240],
+                "resource_kind": str(raw_source.get("resource_kind") or "").strip()[:80],
+            }
+        )
+        if len(sources) >= MAX_MEMORY_SOURCES:
+            break
+
+    return {
+        "updated_at": now_iso(),
+        "last_question": str(memory.get("last_question") or "").strip()[:500],
+        "last_response_type": str(memory.get("last_response_type") or "").strip()[:80],
+        "last_topic": str(memory.get("last_topic") or "").strip()[:240],
+        "last_sources": sources,
+    }
 
 
 class WhatsAppAccessControl:
@@ -370,6 +407,39 @@ class WhatsAppAccessControl:
                 "top_source": top_source,
             },
         )
+
+    def conversation_memory(self, wa_id: object, phone_number: object = "") -> dict[str, Any]:
+        wa_id_norm = normalize_identifier(wa_id)
+        phone_norm = normalize_identifier(phone_number) or wa_id_norm
+        if not wa_id_norm:
+            return {}
+        user = self._user(wa_id_norm)
+        if not user and phone_norm != wa_id_norm:
+            user = self._user(phone_norm)
+        memory = user.get("conversation_memory", {}) if isinstance(user, dict) else {}
+        return dict(memory) if isinstance(memory, dict) else {}
+
+    def update_conversation_memory(
+        self,
+        memory: dict[str, Any],
+        *,
+        wa_id: object,
+        phone_number: object = "",
+        profile_name: str = "",
+    ) -> None:
+        wa_id_norm = normalize_identifier(wa_id)
+        if not wa_id_norm:
+            return
+        phone_norm = normalize_identifier(phone_number) or wa_id_norm
+        payload = self.store.load()
+        user = self._ensure_user(payload, wa_id_norm, phone_norm)
+        user["last_seen_at"] = now_iso()
+        if profile_name:
+            user["profile_name"] = profile_name
+        clean_memory = sanitize_conversation_memory(memory)
+        if clean_memory:
+            user["conversation_memory"] = clean_memory
+        self.store.save(payload)
 
     def events(self, kind: str = "", limit: int = 25) -> list[dict[str, Any]]:
         payload = self.store.load()

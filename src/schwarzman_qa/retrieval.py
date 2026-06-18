@@ -216,6 +216,41 @@ def retrieve(index: dict[str, Any], query: str, top_k: int = 6) -> list[dict[str
     return [result for _, result in scored[:top_k]]
 
 
+def retrieve_from_document(index: dict[str, Any], citation_ref: str, query: str, top_k: int = 3) -> list[dict[str, Any]]:
+    wanted_ref = public_citation_ref(citation_ref)
+    query_counts = expanded_query_counts(query)
+    if not query_counts or not wanted_ref:
+        return []
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for chunk in index.get("chunks", []):
+        chunk_ref = public_citation_ref(chunk.get("citation_ref") or chunk.get("source_file") or "")
+        if chunk_ref != wanted_ref:
+            continue
+        score, reasons = score_chunk(index, chunk, query, query_counts)
+        if score <= 0:
+            # Keep named-document comparisons from losing a side just because
+            # the exact comparison wording is sparse.
+            score = 1.0
+        result = {key: value for key, value in chunk.items() if key != "tokens"}
+        source_file = public_citation_ref(result.get("source_file") or result.get("path"))
+        result["source_file"] = source_file
+        result["citation_ref"] = public_citation_ref(result.get("citation_ref") or source_file)
+        result["source_title"] = public_source_title(result.get("source_title", ""), source_file)
+        result["resource_kind"] = result.get("resource_kind") or resource_kind_for(
+            result.get("source"),
+            source_file,
+            result.get("source_title", ""),
+            result.get("file_summary", ""),
+        )
+        result["score"] = round(score, 6)
+        if reasons:
+            result["match_reasons"] = reasons
+        scored.append((score, result))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [result for _, result in scored[:top_k]]
+
+
 def expanded_query_counts(query: str) -> Counter[str]:
     counts: Counter[str] = Counter(tokenize(query))
     for token, count in list(counts.items()):

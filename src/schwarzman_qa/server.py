@@ -153,6 +153,34 @@ def top_retrieval_source(response: dict[str, Any]) -> tuple[float, str]:
     return float(first.get("score", 0) or 0), str(first.get("citation_ref", "") or first.get("source_file", ""))
 
 
+def conversation_memory_from_response(question: str, response: dict[str, Any]) -> dict[str, Any]:
+    sources = []
+    seen_refs: set[str] = set()
+    for item in response.get("retrieval", {}).get("sources", []):
+        ref = str(item.get("citation_ref") or item.get("source_file") or "").strip()
+        if not ref or ref in seen_refs:
+            continue
+        seen_refs.add(ref)
+        sources.append(
+            {
+                "citation_ref": ref,
+                "source_file": str(item.get("source_file") or ref),
+                "source_title": str(item.get("source_title") or ""),
+                "resource_kind": str(item.get("resource_kind") or ""),
+            }
+        )
+        if len(sources) >= 6:
+            break
+    if not sources:
+        return {}
+    return {
+        "last_question": question,
+        "last_response_type": str(response.get("response_type", "")),
+        "last_topic": sources[0].get("source_title") or sources[0].get("citation_ref", ""),
+        "last_sources": sources,
+    }
+
+
 def default_index_path(root: Path) -> Path:
     index_url = os.environ.get("SCHWARZMAN_INDEX_URL", "").strip()
     if index_url:
@@ -529,11 +557,13 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 return
 
             started = time.perf_counter()
+            memory_context = access.conversation_memory(message.wa_id, message.phone_number)
             result = answer_with_agents(
                 self.state.root,
                 text,
                 index_data=self.state.index_data,
                 top_k=self.state.default_top_k,
+                conversation_memory=memory_context,
             )
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             response = make_response(result, elapsed_ms)
@@ -550,6 +580,15 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                     top_score=top_score,
                     top_source=top_source,
                 )
+            else:
+                memory_update = conversation_memory_from_response(text, response)
+                if memory_update:
+                    access.update_conversation_memory(
+                        memory_update,
+                        wa_id=message.wa_id,
+                        phone_number=message.phone_number,
+                        profile_name=message.profile_name,
+                    )
             send_twilio_text(message.from_address, format_chat_answer(str(answer)), from_address=message.to_address)
         except Exception as exc:
             print(f"Twilio WhatsApp message handling failed: {type(exc).__name__}", flush=True)
@@ -638,11 +677,13 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 return
 
             started = time.perf_counter()
+            memory_context = access.conversation_memory(message.wa_id, message.phone_number)
             result = answer_with_agents(
                 self.state.root,
                 text,
                 index_data=self.state.index_data,
                 top_k=self.state.default_top_k,
+                conversation_memory=memory_context,
             )
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             response = make_response(result, elapsed_ms)
@@ -659,6 +700,15 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                     top_score=top_score,
                     top_source=top_source,
                 )
+            else:
+                memory_update = conversation_memory_from_response(text, response)
+                if memory_update:
+                    access.update_conversation_memory(
+                        memory_update,
+                        wa_id=message.wa_id,
+                        phone_number=message.phone_number,
+                        profile_name=message.profile_name,
+                    )
             send_text(message.wa_id, format_chat_answer(str(answer)))
         except Exception as exc:
             print(f"WhatsApp message handling failed: {type(exc).__name__}", flush=True)

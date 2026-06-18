@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from .citations import public_citation_ref
 from .config import answer_model, openrouter_api_key, review_model
 from .guardrails import GuardrailResult, classify_user_input
 from .openrouter_client import OpenRouterClient, parse_json_object
@@ -20,7 +21,7 @@ from .policy import (
     clean_visible_text,
     format_answer_payload,
 )
-from .retrieval import document_candidates, load_index, retrieve
+from .retrieval import document_candidates, load_index, retrieve, retrieve_from_document
 
 
 ANSWER_THRESHOLD = 0.72
@@ -560,6 +561,168 @@ def is_capability_question(question: str) -> bool:
     return any(re.search(pattern, normalized) for pattern in patterns)
 
 
+COMPARISON_DOCUMENT_ALIASES: tuple[tuple[str, str], ...] = (
+    (
+        r"\b(c11\s+)?international student webin(?:ar|er)\b",
+        "blackboard/C11 International Student Webinar.pdf",
+    ),
+    (
+        r"\b(c11\s+)?international scholars? webin(?:ar|er)\b|\binternational scholars? meeting\b",
+        "blackboard/C11 International Scholars Webinar (April 28, 2026).docx",
+    ),
+    (
+        r"\b(c11\s+)?welcome meeting\b|\bjanuary welcome meeting\b",
+        "blackboard/C11 Welcome Meeting (January 12, 2026).pdf",
+    ),
+)
+
+
+def is_comparison_question(question: str) -> bool:
+    lowered = question.lower()
+    return bool(
+        re.search(
+            r"\b(compare|comparison|different|difference|differ|differs|differed|defer(?:red)?|versus|vs\.?|contrast|similar|similarities)\b",
+            lowered,
+        )
+    )
+
+
+def has_contextual_reference(question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(that|this|previous|prior|earlier|first|second)\s+(meeting|webinar|session|call|resource|document|file)\b|\bthat one\b|\bit\b",
+            question.lower(),
+        )
+    )
+
+
+def comparison_targets_for(
+    question: str,
+    memory: dict[str, Any] | None,
+    index: dict[str, Any],
+) -> list[dict[str, str]]:
+    if not is_comparison_question(question):
+        return []
+    lowered = question.lower()
+    targets: list[dict[str, str]] = []
+
+    if has_contextual_reference(question):
+        for source in (memory or {}).get("last_sources", []):
+            if not isinstance(source, dict):
+                continue
+            ref = public_citation_ref(source.get("citation_ref") or source.get("source_file") or "")
+            title = str(source.get("source_title") or Path(ref).name)
+            haystack = " ".join([ref, title, str(source.get("resource_kind") or "")]).lower()
+            if re.search(r"\b(webinar|meeting|session|call)\b", haystack):
+                targets.append({"citation_ref": ref, "source_title": title})
+                break
+
+    for pattern, citation_ref in COMPARISON_DOCUMENT_ALIASES:
+        if re.search(pattern, lowered):
+            targets.append({"citation_ref": citation_ref, "source_title": source_title_for_ref(index, citation_ref)})
+
+    return unique_comparison_targets(targets)
+
+
+def source_title_for_ref(index: dict[str, Any], citation_ref: str) -> str:
+    wanted = public_citation_ref(citation_ref)
+    for chunk in index.get("chunks", []):
+        ref = public_citation_ref(chunk.get("citation_ref") or chunk.get("source_file") or "")
+        if ref == wanted:
+            return str(chunk.get("source_title") or Path(wanted).name)
+    return Path(wanted).name
+
+
+def unique_comparison_targets(targets: list[dict[str, str]]) -> list[dict[str, str]]:
+    unique: list[dict[str, str]] = []
+    seen_refs: set[str] = set()
+    for target in targets:
+        ref = public_citation_ref(target.get("citation_ref", ""))
+        if not ref or ref in seen_refs:
+            continue
+        seen_refs.add(ref)
+        unique.append({"citation_ref": ref, "source_title": target.get("source_title") or Path(ref).name})
+    return unique[:3]
+
+
+def comparison_results_for(
+    index: dict[str, Any],
+    targets: list[dict[str, str]],
+    question: str,
+    top_k: int,
+) -> list[dict[str, Any]]:
+    per_document = max(2, min(4, max(1, top_k // max(1, len(targets)))))
+    results: list[dict[str, Any]] = []
+    for target in targets:
+        ref = target["citation_ref"]
+        title = target.get("source_title") or Path(ref).name
+        query = f"{question} {title} agenda summary differences topics"
+        results.extend(retrieve_from_document(index, ref, query, top_k=per_document))
+    return results[: max(top_k, len(targets) * per_document)]
+
+
+def is_webinar_comparison_question(question: str, targets: list[dict[str, str]]) -> bool:
+    if not is_comparison_question(question):
+        return False
+    refs = " ".join(target.get("citation_ref", "").lower() for target in targets)
+    return "welcome meeting" in refs and (
+        "international student webinar" in refs or "international scholars webinar" in refs
+    )
+
+
+def webinar_comparison_answer(results: list[dict[str, Any]], targets: list[dict[str, str]]) -> str | None:
+    if not targets:
+        return None
+    international_results = [
+        result
+        for result in results
+        if re.search(
+            r"international (student|scholars?) webinar",
+            str(result.get("citation_ref") or result.get("source_file") or "").lower(),
+        )
+    ]
+    welcome_results = [
+        result
+        for result in results
+        if "welcome meeting" in str(result.get("citation_ref") or result.get("source_file") or "").lower()
+    ]
+    if not international_results or not welcome_results:
+        return None
+
+    evidence: list[tuple[str, str]] = []
+    international_quote = (
+        language_quote_for(international_results, ["VISA OVERVIEW, STIPEND, WECHAT AND", "INBOUND TRAVEL"])
+        or language_quote_for(international_results, ["HEALTH INSURANCE AND PACKING LIST", "CHINESE LANGUAGE LEARNING"])
+    )
+    welcome_quote = (
+        language_quote_for(welcome_results, ["welcome C11", "community"])
+        or language_quote_for(welcome_results, ["professional profile", "community resource"])
+        or language_quote_for(welcome_results, ["housing policy", "guests are definitely allowed"])
+    )
+    for item in (international_quote, welcome_quote):
+        if item and item not in evidence:
+            evidence.append(item)
+
+    if len(evidence) < 2:
+        for result in international_results[:1] + welcome_results[:1]:
+            ref = str(result.get("citation_ref", "")).strip()
+            quote = clean_quote(str(result.get("text", "")), max_chars=260)
+            if ref and quote and (ref, quote) not in evidence:
+                evidence.append((ref, quote))
+    if len(evidence) < 2:
+        return None
+
+    lines = [
+        "Answer:",
+        "They seem to differ mainly in purpose and level of detail. The international student/scholars webinar is more operational: visa steps, residence permits, inbound travel, health insurance, packing, WeChat/reminders, and Chinese-language learning. The C11 Welcome Meeting is broader onboarding: welcoming the cohort, introducing the community and leadership, explaining communications/action items, career/community resources, and answering broader life-at-Schwarzman questions. [1] [2]",
+        "",
+        "Evidence:",
+    ]
+    for idx, (ref, quote) in enumerate(evidence[:4], start=1):
+        lines.append(f"[{idx}] \"{quote}\" - {ref}")
+    return "\n".join(lines)
+
+
 def packing_answer(results: list[dict[str, Any]]) -> str | None:
     packing_results = [
         result
@@ -926,6 +1089,7 @@ def answer_with_agents(
     answer_model_name: str | None = None,
     review_model_name: str | None = None,
     event_callback: EventCallback | None = None,
+    conversation_memory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     def emit(event: str, payload: dict[str, Any] | None = None) -> None:
         if event_callback:
@@ -979,11 +1143,16 @@ def answer_with_agents(
     emit("retrieval_started")
     index = index_data if index_data is not None else load_index(root, index_path)
     retrieval_query = retrieval_query_for(guard.normalized_text)
-    results = retrieve(index, retrieval_query, top_k=top_k)
+    comparison_targets = comparison_targets_for(guard.normalized_text, conversation_memory, index)
+    if len(comparison_targets) >= 2:
+        results = comparison_results_for(index, comparison_targets, retrieval_query, top_k=top_k)
+        retrieval_strategy = "comparison_documents"
+    else:
+        results = retrieve(index, retrieval_query, top_k=top_k)
+        retrieval_strategy = "primary"
     top_score = results[0]["score"] if results else 0.0
     summary_candidates: list[dict[str, Any]] = []
-    retrieval_strategy = "primary"
-    if not results or top_score < CLARIFY_THRESHOLD:
+    if retrieval_strategy != "comparison_documents" and (not results or top_score < CLARIFY_THRESHOLD):
         summary_candidates = document_candidates(index, retrieval_query, top_k=5)
         if summary_candidates and float(summary_candidates[0].get("score", 0.0)) >= DOCUMENT_FALLBACK_THRESHOLD:
             summary_context = " ".join(
@@ -1025,6 +1194,7 @@ def answer_with_agents(
             "strategy": retrieval_strategy,
             "results": compact_results(results),
             "document_candidates": compact_document_candidates(summary_candidates),
+            "comparison_targets": comparison_targets,
         },
     }
 
@@ -1043,6 +1213,11 @@ def answer_with_agents(
     if retrieval_only:
         emit("answer_ready", {"response_type": "retrieval_only"})
         return {**base, "response_type": "retrieval_only", "final_answer": ""}
+    if is_webinar_comparison_question(guard.normalized_text, comparison_targets):
+        deterministic_answer = webinar_comparison_answer(results, comparison_targets)
+        if deterministic_answer:
+            emit("answer_ready", {"response_type": "answer", "fallback": "webinar_comparison"})
+            return {**base, "response_type": "answer", "final_answer": deterministic_answer}
     if is_todo_question(guard.normalized_text):
         deterministic_answer = todo_answer(results)
         if deterministic_answer:
