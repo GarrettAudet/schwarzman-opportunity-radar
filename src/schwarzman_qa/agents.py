@@ -828,7 +828,7 @@ def language_program_answer(results: list[dict[str, Any]]) -> str | None:
         "",
         "Evidence:",
     ]
-    for idx, (ref, quote) in enumerate(evidence[:2], start=1):
+    for idx, (ref, quote) in enumerate(evidence[:3], start=1):
         lines.append(f"[{idx}] \"{quote}\" - {ref}")
     return "\n".join(lines)
 
@@ -923,7 +923,7 @@ def webinar_summary_answer(results: list[dict[str, Any]]) -> str | None:
         "",
         "Evidence:",
     ]
-    for idx, (ref, quote) in enumerate(evidence[:3], start=1):
+    for idx, (ref, quote) in enumerate(evidence[:2], start=1):
         lines.append(f"[{idx}] \"{quote}\" - {ref}")
     return "\n".join(lines)
 
@@ -964,7 +964,7 @@ def welcome_meeting_summary_answer(results: list[dict[str, Any]]) -> str | None:
         "",
         "Evidence:",
     ]
-    for idx, (ref, quote) in enumerate(evidence[:3], start=1):
+    for idx, (ref, quote) in enumerate(evidence[:2], start=1):
         lines.append(f"[{idx}] \"{quote}\" - {ref}")
     return "\n".join(lines)
 
