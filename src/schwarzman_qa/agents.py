@@ -81,21 +81,25 @@ RESOURCE_SCOPE_TERMS = {
     "meal",
     "medical",
     "medication",
+    "mandarin",
     "orientation",
     "packing",
     "passport",
     "permit",
+    "permits",
     "physical exam",
     "pre-program",
     "private equity",
     "resource",
     "residence permit",
+    "residence permits",
     "resume",
     "scholarship resources",
     "sim card",
     "spouse",
     "staying in china",
     "stay permit",
+    "stay permits",
     "action item",
     "action items",
     "checklist",
@@ -113,8 +117,18 @@ RESOURCE_SCOPE_TERMS = {
     "visa",
     "vaccination",
     "wechat",
+    "chinese language",
+    "chinese language program",
+    "chinese language programme",
+    "language program",
+    "language programme",
+    "language learning",
+    "learn chinese",
+    "learn mandarin",
     "work in china",
     "work authorization",
+    "work permit",
+    "work permits",
     "x1",
 }
 
@@ -310,6 +324,12 @@ def retrieval_query_for(question: str) -> str:
     aliases: list[str] = []
     if re.search(r"\btodo\b|\bto do\b", lowered) and "to-do" not in lowered:
         aliases.append("to-do")
+    if re.search(r"\bresidence permits\b", lowered):
+        aliases.extend(["residence permit", "stay permit", "visa"])
+    elif re.search(r"\bpermits\b", lowered) and "permit" not in lowered:
+        aliases.append("permit")
+    if re.search(r"\bmandarin\b|\blearn chinese\b|\bchinese language\b|\blanguage learning\b", lowered):
+        aliases.extend(["chinese language program", "language programme", "IUP", "CET", "CLP"])
     if not aliases:
         return question
     return f"{question} {' '.join(aliases)}"

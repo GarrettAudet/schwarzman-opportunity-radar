@@ -235,8 +235,7 @@ python scripts\query_backend.py --url https://schwarzmanqna.onrender.com/ask --s
 
 For WhatsApp, use these stream events as internal progress states. WhatsApp
 itself usually sends complete messages rather than token-by-token edits, so the
-integration should send a quick acknowledgement or typing indicator first, then
-send the final cited answer when the `final` event arrives.
+integration should send the final cited answer when the `final` event arrives.
 
 ## WhatsApp Access Control
 
@@ -347,8 +346,7 @@ Subscribe to WhatsApp message webhooks. Incoming DMs follow this flow:
 3. Approved users can ask questions, send `/help`, or send `/feedback <text>`.
 4. Failed, not-found, out-of-scope, and feedback messages are logged in the
    private access store for admin review.
-5. The bot sends a quick acknowledgement, calls the Q&A agent, then sends the
-   final cited answer.
+5. The bot calls the Q&A agent, then sends the final cited answer.
 6. Blocked users are denied even if they enrolled earlier.
 
 ## Phase 5: Online Backend

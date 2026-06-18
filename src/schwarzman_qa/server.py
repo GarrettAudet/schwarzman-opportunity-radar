@@ -539,7 +539,6 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            send_twilio_text(message.from_address, "Got it - searching the reviewed resources now.", from_address=message.to_address)
             started = time.perf_counter()
             result = answer_with_agents(
                 self.state.root,
@@ -649,7 +648,6 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            send_text(message.wa_id, "Got it - searching the reviewed resources now.", reply_to_message_id=message.message_id)
             started = time.perf_counter()
             result = answer_with_agents(
                 self.state.root,
