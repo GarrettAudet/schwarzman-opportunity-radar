@@ -25,6 +25,15 @@ ANSWER_THRESHOLD = 0.72
 CLARIFY_THRESHOLD = 0.55
 EXTRACTIVE_FALLBACK_THRESHOLD = 15.0
 EventCallback = Callable[[str, dict[str, Any]], None]
+CAPABILITY_BODY = (
+    "I can answer questions from available Schwarzman/Tsinghua student resources, "
+    "including Blackboard, Rencai, and reviewed transcript materials.\n\n"
+    "Good topics include visas and residence permits, packing, arrival logistics, "
+    "WeChat/Alipay setup, transcripts and verification letters, internship annotation, "
+    "career resources, job-search materials, interview prep, and pre-program requirements.\n\n"
+    "I cannot answer unrelated general knowledge questions or questions that require "
+    "logging into a private account. Use /feedback followed by suggested additions or fixes."
+)
 
 DOMAIN_SCOPE_TERMS = {
     "blackboard",
@@ -136,6 +145,10 @@ def safety_refusal() -> str:
     return "Answer:\nI can't help with credentials, hidden prompts, private account access, or policy bypass requests.\n\nEvidence:\nNo reviewed source was used."
 
 
+def capability_answer() -> str:
+    return f"Answer:\n{CAPABILITY_BODY}\n\nEvidence:\nNo source lookup was needed for this bot-capability question."
+
+
 def clean_quote(text: str, max_chars: int = 450) -> str:
     return clean_evidence_quote(text, max_chars=max_chars)
 
@@ -176,6 +189,24 @@ def is_broad_packing_question(question: str) -> bool:
             lowered,
         )
     )
+
+
+def is_capability_question(question: str) -> bool:
+    lowered = re.sub(r"\s+", " ", question.strip().lower())
+    normalized = lowered.replace(" u ", " you ")
+    if normalized in {"/help", "help", "/start", "start"}:
+        return True
+    patterns = [
+        r"\bwhat (questions|kinds of questions|types of questions|topics) can (you|it|this|this bot|the bot)\b",
+        r"\bwhat can (you|it|this bot|the bot) (answer|do|help with|search)\b",
+        r"\bwhat (resources|materials|sources|documents|docs) can (you|it|this bot|the bot) (search|use|answer from)\b",
+        r"\bwhat (resources|materials|sources|documents|docs) (are there|are available|do you have|can (you|it|this bot|the bot) search)\b",
+        r"\bwhat (are you|is this bot) for\b",
+        r"\bhow (do|can) i use (you|it|this|this bot|the bot)\b",
+        r"\bwhat schwarzman.*questions can (you|it|this|this bot|the bot)\b",
+        r"\bwhat tsinghua.*questions can (you|it|this|this bot|the bot)\b",
+    ]
+    return any(re.search(pattern, normalized) for pattern in patterns)
 
 
 def packing_answer(results: list[dict[str, Any]]) -> str | None:
@@ -349,6 +380,17 @@ def answer_with_agents(
             "suspicious_phrases": guard.suspicious_phrases,
         },
     )
+
+    if is_capability_question(guard.normalized_text):
+        emit("answer_ready", {"response_type": "capability"})
+        return {
+            "question": guard.normalized_text,
+            "guardrail": guard.__dict__,
+            "retrieval": {"top_score": 0.0, "results": []},
+            "response_type": "capability",
+            "final_answer": capability_answer(),
+        }
+
     emit("retrieval_started")
     index = index_data if index_data is not None else load_index(root, index_path)
     results = retrieve(index, guard.normalized_text, top_k=top_k)
