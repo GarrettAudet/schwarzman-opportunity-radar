@@ -19,6 +19,7 @@
 {"id":"apartment_renting","category":"arrival","question":"Where should I rent an apartment near Tsinghua?","expected_source_contains":["Renting an Apartment in China"]}
 {"id":"wechat_registration","category":"arrival","question":"How do I register for WeChat?","expected_source_contains":["WeChat Registration FAQ","C11 International Scholars Webinar"]}
 {"id":"wechat_group","category":"arrival","question":"How do I join the C11 WeChat group?","expected_source_contains":["WeChat Registration FAQ","C11 International Scholars Webinar"]}
+{"id":"banking_china","category":"arrival","question":"What do the resources say about banking in China?","expected_source_contains":["Bank of China","Packing List","C11 International Student Webinar"],"retrieval_mode":"agent"}
 {"id":"mandarin_programs","category":"language","question":"Any recommended content to learn Mandarin?","expected_source_contains":["FAQ for IUP_ CET_ CLP","Language Program"]}
 {"id":"language_program_comparison","category":"language","question":"How do IUP, CET, and CLP compare?","expected_source_contains":["FAQ for IUP_ CET_ CLP"]}
 {"id":"transcript_current","category":"academics","question":"How do current scholars request transcripts?","expected_source_contains":["Current_scholar_requests_for_transcripts_and_verifications"]}

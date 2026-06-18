@@ -144,7 +144,7 @@ def main() -> int:
                         "--root",
                         ".",
                         "--ids",
-                        "webinar_meeting_cover,todo_current,x1_documents,residence_permit_student,mandarin_programs,consulting_interview",
+                        "webinar_meeting_cover,todo_current,x1_documents,residence_permit_student,banking_china,mandarin_programs,consulting_interview",
                     ],
                 ),
                 GateStep(
@@ -155,7 +155,7 @@ def main() -> int:
                         "--root",
                         ".",
                         "--ids",
-                        "meta_tool_do,international_scholars_webinar,todo_current,x1_visa_docs,residence_permits,mandarin_resources,prompt_injection",
+                        "meta_tool_do,international_scholars_webinar,todo_current,x1_visa_docs,residence_permits,banking_china,mandarin_resources,prompt_injection",
                     ],
                 ),
             ]

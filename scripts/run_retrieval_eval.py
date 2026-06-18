@@ -12,7 +12,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from schwarzman_qa.agents import retrieval_query_for  # noqa: E402
+from schwarzman_qa.agents import answer_with_agents, retrieval_query_for  # noqa: E402
 from schwarzman_qa.retrieval import document_candidates, load_index, retrieve  # noqa: E402
 
 
@@ -93,12 +93,18 @@ def write_markdown(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def evaluate_case(index: dict[str, Any], case: dict[str, Any], top_k: int) -> dict[str, Any]:
+def evaluate_case(root: Path, index: dict[str, Any], case: dict[str, Any], top_k: int) -> dict[str, Any]:
     raw_question = str(case["question"])
     query = retrieval_query_for(raw_question)
     expected = list(case.get("expected_source_contains", []))
-    results = retrieve(index, query, top_k=top_k)
-    docs = document_candidates(index, query, top_k=top_k)
+    retrieval_mode = str(case.get("retrieval_mode", "direct"))
+    if retrieval_mode == "agent":
+        agent_result = answer_with_agents(root, raw_question, index_data=index, top_k=top_k, retrieval_only=True)
+        results = list(agent_result.get("retrieval", {}).get("results", []))
+        docs = list(agent_result.get("retrieval", {}).get("document_candidates", []))
+    else:
+        results = retrieve(index, query, top_k=top_k)
+        docs = document_candidates(index, query, top_k=top_k)
     refs = [str(item.get("citation_ref") or item.get("source_file") or "") for item in results]
     doc_refs = [str(item.get("citation_ref") or item.get("source_file") or "") for item in docs]
     rank = first_rank(refs, expected)
@@ -108,6 +114,7 @@ def evaluate_case(index: dict[str, Any], case: dict[str, Any], top_k: int) -> di
         "category": case.get("category", ""),
         "question": raw_question,
         "query": query,
+        "retrieval_mode": retrieval_mode,
         "expected": " | ".join(expected),
         "rank": rank,
         "top1": rank == 1,
@@ -144,7 +151,7 @@ def main() -> int:
 
     rows = []
     for number, case in enumerate(cases, start=1):
-        row = evaluate_case(index, case, args.top_k)
+        row = evaluate_case(root, index, case, args.top_k)
         rows.append(row)
         status = "PASS" if row["top5"] else "FAIL"
         print(f"[{number}/{len(cases)}] {status} {row['id']} rank={row['rank'] or 'miss'} top={row['top_ref']}")

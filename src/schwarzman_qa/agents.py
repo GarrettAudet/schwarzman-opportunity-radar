@@ -67,6 +67,9 @@ RESOURCE_SCOPE_TERMS = {
     "alipay",
     "arrival",
     "bank",
+    "bank account",
+    "bank card",
+    "banking",
     "career",
     "campus",
     "consulting",
@@ -531,6 +534,28 @@ def is_language_program_question(question: str) -> bool:
     )
 
 
+def is_banking_question(question: str) -> bool:
+    lowered = question.lower()
+    return bool(
+        re.search(
+            r"\b(bank|banking|bank account|bank card|debit card|bank of china|payment setup|payments?)\b",
+            lowered,
+        )
+    )
+
+
+def is_student_banking_question(question: str) -> bool:
+    lowered = question.lower()
+    if not is_banking_question(question):
+        return False
+    return not bool(
+        re.search(
+            r"\b(investment banking|finance career|career resources?|job search|resume|interview)\b",
+            lowered,
+        )
+    )
+
+
 def is_webinar_summary_question(question: str) -> bool:
     lowered = question.lower()
     if not re.search(r"\b(webinar|meeting|call|session)\b", lowered):
@@ -574,6 +599,12 @@ COMPARISON_DOCUMENT_ALIASES: tuple[tuple[str, str], ...] = (
         r"\b(c11\s+)?welcome meeting\b|\bjanuary welcome meeting\b",
         "blackboard/C11 Welcome Meeting (January 12, 2026).pdf",
     ),
+)
+
+STUDENT_BANKING_REFS = (
+    "blackboard/C11 International Student Webinar.pdf",
+    "blackboard/OBTAINING YOUR X1 STUDENT VISA 2026.pdf",
+    "blackboard/Packing List for Students (2026).pdf",
 )
 
 
@@ -685,6 +716,18 @@ def named_document_results_for(
         query = f"{question} {title} agenda summary topics discussed covered action items logistics overview welcome cohort community onboarding"
         results.extend(retrieve_from_document(index, ref, query, top_k=max(top_k, 10)))
     return results[: max(top_k, 10)]
+
+
+def student_banking_results_for(index: dict[str, Any], question: str, top_k: int) -> list[dict[str, Any]]:
+    per_document = max(2, min(4, max(1, top_k // len(STUDENT_BANKING_REFS))))
+    query = (
+        f"{question} Bank of China account debit card application stipend international bank card "
+        "RMB cash overseas card DiDi Alipay WeChatPay arrival payment"
+    )
+    results: list[dict[str, Any]] = []
+    for ref in STUDENT_BANKING_REFS:
+        results.extend(retrieve_from_document(index, ref, query, top_k=per_document))
+    return results[: max(top_k, len(STUDENT_BANKING_REFS) * per_document)]
 
 
 def is_webinar_comparison_question(question: str, targets: list[dict[str, str]]) -> bool:
@@ -928,6 +971,33 @@ def webinar_summary_answer(results: list[dict[str, Any]]) -> str | None:
     return "\n".join(lines)
 
 
+def banking_answer(results: list[dict[str, Any]]) -> str | None:
+    evidence: list[tuple[str, str]] = []
+    for item in (
+        language_quote_for(results, ["Bank of China account", "stipend"]),
+        language_quote_for(results, ["Bank of China debit card application"]),
+        language_quote_for(results, ["International bank card", "RMB cash"]),
+        language_quote_for(results, ["overseas card", "DiDi / Alipay / WeChatPay"]),
+    ):
+        if item and item not in evidence:
+            evidence.append(item)
+    if not evidence:
+        return None
+
+    lines = [
+        "Answer:",
+        "The available resources do not appear to include a full banking setup guide, but they do mention a few practical banking/payment points: the stipend is deposited after arrival once a Bank of China account is set up, the program may collect passports after arrival to start the Bank of China debit-card application, and students are advised to bring an international bank card plus some RMB cash for arrival. [1] [2]",
+    ]
+    if len(evidence) >= 3:
+        lines.append(
+            "The packing guidance also says to have cash available if you are not sure your overseas card is linked to DiDi, Alipay, or WeChat Pay. [3]"
+        )
+    lines.extend(["", "Evidence:"])
+    for idx, (ref, quote) in enumerate(evidence[:3], start=1):
+        lines.append(f"[{idx}] \"{quote}\" - {ref}")
+    return "\n".join(lines)
+
+
 def welcome_meeting_summary_answer(results: list[dict[str, Any]]) -> str | None:
     welcome_results = [
         result
@@ -1032,7 +1102,10 @@ def should_not_found_for_irrelevant_results(question: str, results: list[dict[st
         results, ["alipay", "wechat pay", "payment setup"]
     ):
         return True
-    if re.search(r"\b(bank account|banking)\b", lowered) and not has_result_text(results, ["bank account"]):
+    if re.search(r"\b(bank|bank account|banking|bank card|debit card|payment setup|payments?)\b", lowered) and not has_result_text(
+        results,
+        ["bank account", "bank of china", "debit card", "international bank card", "rmb cash", "overseas card"],
+    ):
         return True
     topic_terms = [
         (r"\b(apartment|rent|rental|renting)\b", ["apartment", "rent", "rental", "renting"]),
@@ -1046,6 +1119,11 @@ def should_not_found_for_irrelevant_results(question: str, results: list[dict[st
 
 def retrieval_query_for(question: str) -> str:
     lowered = question.lower()
+    if is_student_banking_question(question):
+        return (
+            "Bank of China account debit card application stipend international bank card "
+            "RMB cash overseas card DiDi Alipay WeChatPay taxi arrival payment"
+        )
     aliases: list[str] = []
     if re.search(r"\bwelcome meeting\b", lowered) and re.search(r"\bjanuary\b|\bjan\b|1/12|12", lowered):
         aliases.extend(["C11 Welcome Meeting January 12 2026 incoming students"])
@@ -1073,6 +1151,13 @@ def retrieval_query_for(question: str) -> str:
         aliases.append("permit")
     if re.search(r"\bmandarin\b|\blearn chinese\b|\bchinese language\b|\blanguage learning\b", lowered):
         aliases.extend(["chinese language program", "language programme", "IUP", "CET", "CLP"])
+    if re.search(r"\b(bank|banking|bank account|bank card|debit card|bank of china|payment setup|payments?)\b", lowered):
+        aliases.extend(
+            [
+                "Bank of China account debit card application stipend international bank card RMB cash",
+                "overseas card DiDi Alipay WeChatPay taxi arrival payment",
+            ]
+        )
     if re.search(r"\blinkedin\b", lowered):
         aliases.extend(["LinkedIn", "RockYourProfile", "profile"])
     if re.search(r"\bcover letters?\b", lowered):
@@ -1217,6 +1302,9 @@ def answer_with_agents(
     if len(comparison_targets) >= 2:
         results = comparison_results_for(index, comparison_targets, retrieval_query, top_k=top_k)
         retrieval_strategy = "comparison_documents"
+    elif is_student_banking_question(guard.normalized_text):
+        results = student_banking_results_for(index, retrieval_query, top_k=top_k)
+        retrieval_strategy = "student_banking_documents"
     elif named_document_targets:
         results = named_document_results_for(index, named_document_targets, retrieval_query, top_k=top_k)
         retrieval_strategy = "named_document"
@@ -1320,6 +1408,11 @@ def answer_with_agents(
         deterministic_answer = language_program_answer(results)
         if deterministic_answer:
             emit("answer_ready", {"response_type": "answer", "fallback": "language_program"})
+            return {**base, "response_type": "answer", "final_answer": deterministic_answer}
+    if is_student_banking_question(guard.normalized_text):
+        deterministic_answer = banking_answer(results)
+        if deterministic_answer:
+            emit("answer_ready", {"response_type": "answer", "fallback": "banking"})
             return {**base, "response_type": "answer", "final_answer": deterministic_answer}
     if should_not_found_without_llm(guard.normalized_text):
         emit("answer_ready", {"response_type": "not_found"})
