@@ -134,14 +134,9 @@ def is_help_request(text: str) -> bool:
     if normalized in {"/help", "help", "/start", "start"}:
         return True
     help_patterns = [
-        r"\bwhat (questions|kinds of questions|types of questions|topics) can (you|it|this|this bot|the bot)\b",
-        r"\bwhat can (you|it|this bot|the bot) (answer|do|help with|search)\b",
-        r"\bwhat (resources|materials|sources|documents|docs) can (you|it|this bot|the bot) (search|use|answer from)\b",
-        r"\bwhat (resources|materials|sources|documents|docs) (are there|are available|do you have|can (you|it|this bot|the bot) search)\b",
+        r"\bwhat can (you|it|this bot|the bot) do\b",
         r"\bwhat (are you|is this bot) for\b",
         r"\bhow (do|can) i use (you|it|this|this bot|the bot)\b",
-        r"\bwhat schwarzman.*questions can (you|it|this|this bot|the bot)\b",
-        r"\bwhat tsinghua.*questions can (you|it|this|this bot|the bot)\b",
     ]
     return any(re.search(pattern, normalized) for pattern in help_patterns)
 

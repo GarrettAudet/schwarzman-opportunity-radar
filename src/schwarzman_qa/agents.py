@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -26,14 +27,23 @@ CLARIFY_THRESHOLD = 0.55
 EXTRACTIVE_FALLBACK_THRESHOLD = 15.0
 EventCallback = Callable[[str, dict[str, Any]], None]
 CAPABILITY_BODY = (
-    "I can answer questions from available Schwarzman/Tsinghua student resources, "
-    "including Blackboard and Rencai.\n\n"
-    "Good topics include visas and residence permits, packing, arrival logistics, "
-    "WeChat/Alipay setup, transcripts and verification letters, internship annotation, "
-    "career resources, job-search materials, interview prep, and pre-program requirements.\n\n"
-    "I cannot answer unrelated general knowledge questions or questions that require "
-    "logging into a private account. Use /feedback followed by suggested additions or fixes."
+    "I answer Schwarzman/Tsinghua questions from available Blackboard and Rencai resources.\n\n"
+    "Ask /resources to see the current resource catalog, or ask a specific question and I will answer from the available materials.\n\n"
+    "I cannot answer unrelated general knowledge questions or questions that require logging into a private account. "
+    "Use /feedback followed by suggested additions or fixes."
 )
+
+CATALOG_TOPICS = [
+    ("Visas, stay/residence permits, and work authorization", ["visa", "permit", "work authorization", "x1", "jw202"]),
+    ("Packing, arrival logistics, and pre-arrival tasks", ["packing", "arrival", "to-do", "todo", "checklist", "pre-program"]),
+    ("Staying in China, banking, phones, WeChat, and Alipay", ["staying in china", "bank", "phone", "sim", "wechat", "alipay"]),
+    ("Mandarin and Chinese language programs", ["mandarin", "chinese language", "language program", "language programme", "iup", "cet", "clp"]),
+    ("Transcripts, enrollment letters, and degree verification", ["transcript", "enrollment", "letter request", "degree verification"]),
+    ("Internship annotation and working in China", ["internship annotation", "internship", "work in china"]),
+    ("Career resources, job search, resumes, cover letters, and LinkedIn", ["career", "job search", "resume", "cover letter", "linkedin"]),
+    ("Interview prep, consulting, finance, private equity, and venture capital", ["interview", "consulting", "finance", "private equity", "venture capital"]),
+    ("Welcome meetings, webinars, and student-facing program guidance", ["welcome", "webinar", "orientation", "student guide"]),
+]
 
 DOMAIN_SCOPE_TERMS = {
     "blackboard",
@@ -173,6 +183,76 @@ def capability_answer() -> str:
     return f"Answer:\n{CAPABILITY_BODY}\n\nEvidence:\nNo source lookup was needed for this bot-capability question."
 
 
+def is_resource_catalog_question(question: str) -> bool:
+    lowered = re.sub(r"\s+", " ", question.strip().lower())
+    normalized = lowered.replace(" u ", " you ")
+    if normalized in {"/resources", "resources", "/sources", "sources", "/catalog", "catalog"}:
+        return True
+    patterns = [
+        r"\bwhat (questions|kinds of questions|types of questions|topics) can (you|it|this|this bot|the bot)\b",
+        r"\bwhat schwarzman.*questions can (you|it|this|this bot|the bot)\b",
+        r"\bwhat tsinghua.*questions can (you|it|this|this bot|the bot)\b",
+        r"\bwhat can (you|it|this bot|the bot) (answer|help with|search)\b",
+        r"\bwhat topics (can|do|does|are) (you|it|this bot|the bot|this)\b.*\b(answer|cover|search|use|have|available)\b",
+        r"\bwhat can (you|it|this bot|the bot) search\b",
+        r"\bwhat (resources|materials|sources|documents|docs|files) (can|do|does|are) (you|it|this bot|the bot|this)\b.*\b(search|use|cover|have|available)\b",
+        r"\bwhat (resources|materials|sources|documents|docs|files) (are there|are available)\b",
+        r"\bwhat (does|do) (this|this bot|the bot|it) (cover|search|use|have access to)\b",
+        r"\bwhat is (in|inside) (the )?(index|corpus|resource catalog|resources)\b",
+        r"\blist (the )?(resources|sources|documents|docs|files)\b",
+    ]
+    return any(re.search(pattern, normalized) for pattern in patterns)
+
+
+def resource_catalog_answer(index: dict[str, Any]) -> str:
+    files: dict[str, dict[str, str]] = {}
+    for chunk in index.get("chunks", []):
+        source_file = str(chunk.get("source_file") or chunk.get("citation_ref") or "").strip()
+        if not source_file:
+            continue
+        source = str(chunk.get("source") or source_file.split("/", 1)[0] or "resource").strip().lower()
+        title = str(chunk.get("source_title") or Path(source_file).name).strip()
+        summary = str(chunk.get("file_summary") or "").strip()
+        existing = files.setdefault(source_file, {"source": source, "title": title, "summary": summary})
+        if summary and len(summary) > len(existing.get("summary", "")):
+            existing["summary"] = summary
+
+    source_counts = Counter(file_info["source"] for file_info in files.values())
+    source_bits = []
+    for source, count in sorted(source_counts.items(), key=lambda item: (-item[1], item[0])):
+        source_bits.append(f"{source.title()} ({count})")
+
+    topic_counts: list[tuple[str, int]] = []
+    for label, keywords in CATALOG_TOPICS:
+        count = 0
+        for path, file_info in files.items():
+            haystack = " ".join([path, file_info.get("title", ""), file_info.get("summary", "")]).lower()
+            if any(keyword in haystack for keyword in keywords):
+                count += 1
+        if count:
+            topic_counts.append((label, count))
+
+    lines = [
+        "Answer:",
+        f"I can currently search {len(files)} available source files across {', '.join(source_bits) or 'the available resources'}, split into {index.get('chunk_count', 0)} searchable chunks.",
+        "",
+        "Main resource areas:",
+    ]
+    for label, count in topic_counts[:8]:
+        lines.append(f"- {label} ({count} files)")
+    if len(topic_counts) > 8:
+        other_count = len(topic_counts) - 8
+        area_word = "area" if other_count == 1 else "areas"
+        lines.append(f"- Other available student-resource materials ({other_count} additional {area_word})")
+    lines.extend(
+        [
+            "",
+            "Ask a specific Schwarzman/Tsinghua question and I will answer from these available resources. If something seems missing, send /feedback followed by what should be added.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def clean_quote(text: str, max_chars: int = 450) -> str:
     return clean_evidence_quote(text, max_chars=max_chars)
 
@@ -221,14 +301,9 @@ def is_capability_question(question: str) -> bool:
     if normalized in {"/help", "help", "/start", "start"}:
         return True
     patterns = [
-        r"\bwhat (questions|kinds of questions|types of questions|topics) can (you|it|this|this bot|the bot)\b",
-        r"\bwhat can (you|it|this bot|the bot) (answer|do|help with|search)\b",
-        r"\bwhat (resources|materials|sources|documents|docs) can (you|it|this bot|the bot) (search|use|answer from)\b",
-        r"\bwhat (resources|materials|sources|documents|docs) (are there|are available|do you have|can (you|it|this bot|the bot) search)\b",
+        r"\bwhat can (you|it|this bot|the bot) do\b",
         r"\bwhat (are you|is this bot) for\b",
         r"\bhow (do|can) i use (you|it|this|this bot|the bot)\b",
-        r"\bwhat schwarzman.*questions can (you|it|this|this bot|the bot)\b",
-        r"\bwhat tsinghua.*questions can (you|it|this|this bot|the bot)\b",
     ]
     return any(re.search(pattern, normalized) for pattern in patterns)
 
@@ -420,6 +495,18 @@ def answer_with_agents(
             "suspicious_phrases": guard.suspicious_phrases,
         },
     )
+
+    if is_resource_catalog_question(guard.normalized_text):
+        emit("catalog_started")
+        index = index_data if index_data is not None else load_index(root, index_path)
+        emit("answer_ready", {"response_type": "resource_catalog"})
+        return {
+            "question": guard.normalized_text,
+            "guardrail": guard.__dict__,
+            "retrieval": {"top_score": 0.0, "results": []},
+            "response_type": "resource_catalog",
+            "final_answer": resource_catalog_answer(index),
+        }
 
     if is_capability_question(guard.normalized_text):
         emit("answer_ready", {"response_type": "capability"})
