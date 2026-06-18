@@ -719,7 +719,7 @@ def named_document_results_for(
 
 
 def student_banking_results_for(index: dict[str, Any], question: str, top_k: int) -> list[dict[str, Any]]:
-    per_document = max(2, min(4, max(1, top_k // len(STUDENT_BANKING_REFS))))
+    per_document = 4
     query = (
         f"{question} Bank of China account debit card application stipend international bank card "
         "RMB cash overseas card DiDi Alipay WeChatPay arrival payment"
@@ -894,6 +894,18 @@ def language_quote_for(results: list[dict[str, Any]], phrases: list[str]) -> tup
     return None
 
 
+def exact_quote_for(results: list[dict[str, Any]], quote: str) -> tuple[str, str] | None:
+    quote_lower = quote.lower()
+    for result in results:
+        text = clean_quote(str(result.get("text", "")), max_chars=5000)
+        if quote_lower not in text.lower():
+            continue
+        ref = str(result.get("citation_ref", "")).strip()
+        if ref:
+            return ref, quote
+    return None
+
+
 def residence_permit_answer(results: list[dict[str, Any]]) -> str | None:
     evidence: list[tuple[str, str]] = []
     study_quote = language_quote_for(
@@ -974,10 +986,20 @@ def webinar_summary_answer(results: list[dict[str, Any]]) -> str | None:
 def banking_answer(results: list[dict[str, Any]]) -> str | None:
     evidence: list[tuple[str, str]] = []
     for item in (
-        language_quote_for(results, ["Bank of China account", "stipend"]),
-        language_quote_for(results, ["Bank of China debit card application"]),
-        language_quote_for(results, ["International bank card", "RMB cash"]),
-        language_quote_for(results, ["overseas card", "DiDi / Alipay / WeChatPay"]),
+        exact_quote_for(
+            results,
+            "Once you set up your Bank of China account after arrival, the stipend will be deposited into your account in RMB.",
+        ),
+        exact_quote_for(results, "start your Bank of China debit card application"),
+        exact_quote_for(results, "International bank card (Visa or Mastercard)"),
+        exact_quote_for(
+            results,
+            "Emergency local currency in cash (at least 2,000 RMB) for use before opening your local bank account",
+        ),
+        exact_quote_for(
+            results,
+            "linked your overseas card to DiDi / Alipay / WeChatPay",
+        ),
     ):
         if item and item not in evidence:
             evidence.append(item)
@@ -986,14 +1008,14 @@ def banking_answer(results: list[dict[str, Any]]) -> str | None:
 
     lines = [
         "Answer:",
-        "The available resources do not appear to include a full banking setup guide, but they do mention a few practical banking/payment points: the stipend is deposited after arrival once a Bank of China account is set up, the program may collect passports after arrival to start the Bank of China debit-card application, and students are advised to bring an international bank card plus some RMB cash for arrival. [1] [2]",
+        "The available resources do not appear to include a full banking setup guide, but they do give a few practical banking/payment notes: after arrival, your stipend is deposited in RMB once you set up a Bank of China account. [1] The program may also collect your passport shortly after arrival to start your Bank of China debit-card application. [2]",
     ]
-    if len(evidence) >= 3:
+    if len(evidence) >= 4:
         lines.append(
-            "The packing guidance also says to have cash available if you are not sure your overseas card is linked to DiDi, Alipay, or WeChat Pay. [3]"
+            "For arrival, the packing list says to bring an international bank card and emergency RMB cash before your local account is open. [3] [4]"
         )
     lines.extend(["", "Evidence:"])
-    for idx, (ref, quote) in enumerate(evidence[:3], start=1):
+    for idx, (ref, quote) in enumerate(evidence[:4], start=1):
         lines.append(f"[{idx}] \"{quote}\" - {ref}")
     return "\n".join(lines)
 
