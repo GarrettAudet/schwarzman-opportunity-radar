@@ -283,7 +283,7 @@ def source_label(ref: str) -> str:
     source_name = {
         "blackboard": "Blackboard",
         "rencai": "Rencai",
-        "transcripts": "Transcript",
+        "transcripts": "Video transcript",
     }.get(source.lower(), source.title() or "Source")
     display_path = path or public_ref
     return f"{source_name}: {display_path}"

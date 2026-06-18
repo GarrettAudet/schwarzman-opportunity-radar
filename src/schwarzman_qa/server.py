@@ -78,6 +78,7 @@ def make_response(result: dict[str, Any], elapsed_ms: int, debug: bool = False) 
                     "citation_ref": public_citation_ref(item.get("citation_ref", "")),
                     "source_file": public_citation_ref(item.get("source_file", "")),
                     "source_title": item.get("source_title", ""),
+                    "resource_kind": item.get("resource_kind", ""),
                 }
                 for item in result.get("retrieval", {}).get("results", [])
             ],

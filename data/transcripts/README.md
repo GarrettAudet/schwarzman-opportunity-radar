@@ -2,6 +2,11 @@
 
 Put video transcript files in `raw/`.
 
+Files placed in `raw/` are tagged as video transcript resources in the local
+index. That lets the bot answer resource-catalog questions such as "what videos
+do we have?" while keeping video transcripts distinct from ordinary Blackboard
+or Rencai PDFs/docs.
+
 Supported formats:
 
 - `.txt`

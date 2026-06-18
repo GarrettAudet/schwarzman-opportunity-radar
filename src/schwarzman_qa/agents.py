@@ -185,6 +185,7 @@ def compact_results(results: list[dict[str, Any]], max_chars: int = 2200) -> lis
                 "source_file": result.get("source_file"),
                 "source_title": result.get("source_title"),
                 "citation_ref": result.get("citation_ref"),
+                "resource_kind": result.get("resource_kind", ""),
                 "review_decision": result.get("review_decision"),
                 "chunk_index": result.get("chunk_index"),
                 "char_start": result.get("char_start"),
@@ -204,6 +205,7 @@ def compact_document_candidates(candidates: list[dict[str, Any]]) -> list[dict[s
                 "citation_ref": candidate.get("citation_ref", ""),
                 "source_file": candidate.get("source_file", ""),
                 "source_title": candidate.get("source_title", ""),
+                "resource_kind": candidate.get("resource_kind", ""),
                 "file_summary": str(candidate.get("file_summary", ""))[:500],
                 "chunk_count": candidate.get("chunk_count", 0),
                 "match_reasons": candidate.get("match_reasons", []),
@@ -254,6 +256,18 @@ def is_resource_catalog_question(question: str) -> bool:
     return any(re.search(pattern, normalized) for pattern in patterns)
 
 
+def is_video_catalog_question(question: str) -> bool:
+    normalized = re.sub(r"\s+", " ", question.strip().lower()).replace(" u ", " you ")
+    patterns = [
+        r"\bwhat (videos?|recordings?|webinars?|video transcripts?) (do|can|does|are) (we|you|this|this bot|the bot) (have|cover|search|include)\b",
+        r"\bwhat (videos?|recordings?|webinars?|video transcripts?) are (available|in the resources|in the corpus|in the index)\b",
+        r"\blist (the )?(videos?|recordings?|webinars?|video transcripts?)\b",
+        r"\bwhich (resources|files|documents) are (videos?|recordings?|webinars?|video transcripts?)\b",
+        r"\bdo (we|you|this bot|the bot) have (any )?(videos?|recordings?|webinars?|video transcripts?)\b",
+    ]
+    return any(re.search(pattern, normalized) for pattern in patterns)
+
+
 def resource_catalog_answer(index: dict[str, Any]) -> str:
     files: dict[str, dict[str, str]] = {}
     for chunk in index.get("chunks", []):
@@ -263,9 +277,15 @@ def resource_catalog_answer(index: dict[str, Any]) -> str:
         source = str(chunk.get("source") or source_file.split("/", 1)[0] or "resource").strip().lower()
         title = str(chunk.get("source_title") or Path(source_file).name).strip()
         summary = str(chunk.get("file_summary") or "").strip()
-        existing = files.setdefault(source_file, {"source": source, "title": title, "summary": summary})
+        resource_kind = str(chunk.get("resource_kind") or "").strip()
+        existing = files.setdefault(
+            source_file,
+            {"source": source, "title": title, "summary": summary, "resource_kind": resource_kind},
+        )
         if summary and len(summary) > len(existing.get("summary", "")):
             existing["summary"] = summary
+        if resource_kind and not existing.get("resource_kind"):
+            existing["resource_kind"] = resource_kind
 
     source_counts = Counter(file_info["source"] for file_info in files.values())
     source_bits = []
@@ -300,6 +320,74 @@ def resource_catalog_answer(index: dict[str, Any]) -> str:
             "Ask a specific Schwarzman/Tsinghua question and I will answer from these available resources. If something seems missing, send /feedback followed by what should be added.",
         ]
     )
+    return "\n".join(lines)
+
+
+def video_catalog_answer(index: dict[str, Any]) -> str:
+    files: dict[str, dict[str, str]] = {}
+    for chunk in index.get("chunks", []):
+        source_file = str(chunk.get("source_file") or chunk.get("citation_ref") or "").strip()
+        if not source_file:
+            continue
+        source = str(chunk.get("source") or source_file.split("/", 1)[0] or "resource").strip().lower()
+        title = str(chunk.get("source_title") or Path(source_file).name).strip()
+        summary = str(chunk.get("file_summary") or "").strip()
+        resource_kind = str(chunk.get("resource_kind") or "").strip()
+        haystack = " ".join([source, source_file, title, summary, resource_kind]).lower()
+        if resource_kind not in {"video_transcript", "video_or_webinar_material"} and not re.search(
+            r"\b(webinar|welcome meeting|recording|video transcript)\b",
+            haystack,
+        ):
+            continue
+        existing = files.setdefault(
+            source_file,
+            {"source": source, "title": title, "summary": summary, "resource_kind": resource_kind},
+        )
+        if summary and len(summary) > len(existing.get("summary", "")):
+            existing["summary"] = summary
+        if resource_kind == "video_transcript":
+            existing["resource_kind"] = resource_kind
+
+    if not files:
+        return (
+            "Answer:\n"
+            "I do not see any video transcript or webinar resources in the current available resource index.\n\n"
+            "Evidence:\nNo source lookup was needed for this resource-catalog question."
+        )
+
+    exact_transcripts = [
+        (path, info)
+        for path, info in files.items()
+        if info.get("resource_kind") == "video_transcript"
+    ]
+    session_materials = [
+        (path, info)
+        for path, info in files.items()
+        if info.get("resource_kind") != "video_transcript"
+    ]
+    lines = [
+        "Answer:",
+        f"I found {len(files)} video, webinar, or recording-related resource files in the available index.",
+        "",
+    ]
+    if exact_transcripts:
+        lines.append("Video transcripts:")
+        for path, info in sorted(exact_transcripts, key=lambda item: item[0].lower())[:12]:
+            lines.append(f"- {info.get('source', 'source').title()}: {info.get('title') or Path(path).name}")
+        if len(exact_transcripts) > 12:
+            lines.append(f"- Plus {len(exact_transcripts) - 12} more transcript files.")
+        lines.append("")
+    if session_materials:
+        lines.append("Webinar/session resources:")
+        for path, info in sorted(session_materials, key=lambda item: item[0].lower())[:12]:
+            lines.append(f"- {info.get('source', 'source').title()}: {info.get('title') or Path(path).name}")
+        if len(session_materials) > 12:
+            lines.append(f"- Plus {len(session_materials) - 12} more webinar/session files.")
+        lines.append("")
+    lines.append("Files imported as video transcripts are labeled separately from ordinary webinar/session PDFs or docs.")
+    lines.append("")
+    lines.append("Evidence:")
+    lines.append("No source lookup was needed for this resource-catalog question.")
     return "\n".join(lines)
 
 
@@ -853,6 +941,18 @@ def answer_with_agents(
             "suspicious_phrases": guard.suspicious_phrases,
         },
     )
+
+    if is_video_catalog_question(guard.normalized_text):
+        emit("catalog_started", {"catalog": "video"})
+        index = index_data if index_data is not None else load_index(root, index_path)
+        emit("answer_ready", {"response_type": "resource_catalog"})
+        return {
+            "question": guard.normalized_text,
+            "guardrail": guard.__dict__,
+            "retrieval": {"top_score": 0.0, "results": []},
+            "response_type": "resource_catalog",
+            "final_answer": video_catalog_answer(index),
+        }
 
     if is_resource_catalog_question(guard.normalized_text):
         emit("catalog_started")

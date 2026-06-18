@@ -9,7 +9,7 @@ from pathlib import Path
 from difflib import SequenceMatcher
 from typing import Any
 
-from .citations import public_citation_ref
+from .citations import public_citation_ref, public_source_title
 from .corpus import latest_file, load_chunks
 
 
@@ -74,6 +74,18 @@ QUERY_SYNONYMS = {
 }
 
 
+def resource_kind_for(source: object, source_file: object, source_title: object, file_summary: object = "") -> str:
+    source_text = str(source or "").strip().lower()
+    public_ref = public_citation_ref(source_file)
+    title = public_source_title(source_title, public_ref)
+    haystack = " ".join([source_text, public_ref, title, str(file_summary or "")]).lower()
+    if source_text == "transcripts" or public_ref.startswith("transcripts/"):
+        return "video_transcript"
+    if re.search(r"\b(webinar|welcome meeting|recording|recorded session|video transcript)\b", haystack):
+        return "video_or_webinar_material"
+    return "document"
+
+
 def tokenize(text: str, *, keep_stopwords: bool = False) -> list[str]:
     tokens: list[str] = []
     text = text.replace("_", " ")
@@ -112,6 +124,9 @@ def build_index(root: Path, chunks_path: Path | None = None) -> dict[str, Any]:
         text = chunk.get("text", "")
         source_file = public_citation_ref(chunk.get("source_file") or chunk.get("path"))
         citation_ref = public_citation_ref(chunk.get("citation_ref") or source_file)
+        source_title = public_source_title(chunk.get("source_title", ""), source_file)
+        file_summary = chunk.get("file_summary", "")
+        resource_kind = resource_kind_for(chunk.get("source"), source_file, source_title, file_summary)
         source_bits = " ".join(
             str(chunk.get(key, ""))
             for key in ("source_title", "source_file", "file_summary", "source")
@@ -124,17 +139,18 @@ def build_index(root: Path, chunks_path: Path | None = None) -> dict[str, Any]:
                 "chunk_id": chunk.get("chunk_id"),
                 "source": chunk.get("source"),
                 "source_file": source_file,
-                "source_title": chunk.get("source_title", ""),
+                "source_title": source_title,
                 "citation_ref": citation_ref,
+                "resource_kind": resource_kind,
                 "chunk_index": chunk.get("chunk_index", 0),
                 "char_start": chunk.get("char_start", 0),
                 "char_end": chunk.get("char_end", 0),
                 "review_decision": chunk.get("review_decision", ""),
                 "qa_flags": chunk.get("qa_flags", ""),
-                "file_summary": chunk.get("file_summary", ""),
+                "file_summary": file_summary,
                 "text": text,
                 "tokens": dict(counts),
-                "title_tokens": dict(Counter(tokenize(chunk.get("source_title", ""), keep_stopwords=True))),
+                "title_tokens": dict(Counter(tokenize(source_title, keep_stopwords=True))),
                 "path_tokens": dict(Counter(tokenize(source_file, keep_stopwords=True))),
                 "summary_tokens": dict(Counter(tokenize(chunk.get("file_summary", ""), keep_stopwords=True))),
                 "length": sum(counts.values()) or 1,
@@ -184,6 +200,13 @@ def retrieve(index: dict[str, Any], query: str, top_k: int = 6) -> list[dict[str
             source_file = public_citation_ref(result.get("source_file") or result.get("path"))
             result["source_file"] = source_file
             result["citation_ref"] = public_citation_ref(result.get("citation_ref") or source_file)
+            result["source_title"] = public_source_title(result.get("source_title", ""), source_file)
+            result["resource_kind"] = result.get("resource_kind") or resource_kind_for(
+                result.get("source"),
+                source_file,
+                result.get("source_title", ""),
+                result.get("file_summary", ""),
+            )
             result["score"] = round(score, 6)
             if reasons:
                 result["match_reasons"] = reasons
@@ -312,7 +335,8 @@ def document_candidates(index: dict[str, Any], query: str, top_k: int = 8) -> li
                 "citation_ref": ref,
                 "source": chunk.get("source", ""),
                 "source_file": public_citation_ref(chunk.get("source_file") or ref),
-                "source_title": chunk.get("source_title", ""),
+                "source_title": public_source_title(chunk.get("source_title", ""), ref),
+                "resource_kind": chunk.get("resource_kind", ""),
                 "file_summary": chunk.get("file_summary", ""),
                 "chunk_count": 0,
                 "best_chunk_id": "",
