@@ -70,7 +70,7 @@ def clean_visible_text(text: str) -> str:
         .replace("\r", "\n")
         .replace("\t", " ")
     )
-    text = re.sub(r"[\u25aa\u25a0\u25cf\u2022]\s*", "- ", text)
+    text = re.sub(r"[\u25aa\u25a0\u25cf\u2022\uf06f]\s*", "- ", text)
     text = re.sub(r"(?m)^\s*[\?\ufffd]\s+(?=[A-Z0-9])", "- ", text)
     text = re.sub(r"[ \f\v]+", " ", text)
     text = re.sub(r" *\n *", "\n", text)
@@ -253,6 +253,10 @@ def format_chat_quote_line(quote: str) -> str:
 
 def quote_label(quote: str) -> str:
     lowered = quote.lower()
+    if "try to bring less stuff" in lowered or "previous cohorts" in lowered:
+        return "Packing advice"
+    if "valid passport" in lowered and ("x1" in lowered or "jw202" in lowered or "admission notice" in lowered):
+        return "Required packing items"
     if "passport" in lowered or "blank page" in lowered:
         return "Passport requirement"
     if "jw202" in lowered or "admission notice" in lowered or "university documents" in lowered:

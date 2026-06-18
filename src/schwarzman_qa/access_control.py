@@ -17,6 +17,8 @@ import urllib.request
 APPROVED = "approved"
 BLOCKED = "blocked"
 PENDING = "pending"
+MAX_STORED_EVENTS = 500
+MAX_EVENT_TEXT_CHARS = 1200
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ def parse_identifier_set(value: str) -> set[str]:
 
 
 def empty_payload() -> dict[str, Any]:
-    return {"version": 1, "updated_at": now_iso(), "users": {}}
+    return {"version": 2, "updated_at": now_iso(), "users": {}, "events": []}
 
 
 class FileAccessStore:
@@ -109,21 +111,84 @@ class GithubAccessStore:
         return payload
 
     def save(self, payload: dict[str, Any]) -> None:
-        _current, sha = self.load_with_sha()
-        payload["updated_at"] = now_iso()
-        body: dict[str, Any] = {
-            "message": "Update WhatsApp access control",
-            "content": base64.b64encode(json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")).decode("ascii"),
-            "branch": self.ref,
-        }
-        if sha:
-            body["sha"] = sha
-        put_url = f"https://api.github.com/repos/{self.repo}/contents/{quote(self.path)}"
-        with urllib.request.urlopen(
-            self._request(put_url, method="PUT", data=json.dumps(body).encode("utf-8")),
-            timeout=30,
-        ):
-            return
+        write_payload = payload
+        for attempt in range(3):
+            current, sha = self.load_with_sha()
+            if attempt:
+                write_payload = merge_access_payload(current, write_payload)
+            write_payload["updated_at"] = now_iso()
+            body: dict[str, Any] = {
+                "message": "Update WhatsApp access control",
+                "content": base64.b64encode(
+                    json.dumps(write_payload, ensure_ascii=False, indent=2).encode("utf-8")
+                ).decode("ascii"),
+                "branch": self.ref,
+            }
+            if sha:
+                body["sha"] = sha
+            put_url = f"https://api.github.com/repos/{self.repo}/contents/{quote(self.path)}"
+            try:
+                with urllib.request.urlopen(
+                    self._request(put_url, method="PUT", data=json.dumps(body).encode("utf-8")),
+                    timeout=30,
+                ):
+                    return
+            except urllib.error.HTTPError as exc:
+                if exc.code == 409 and attempt < 2:
+                    continue
+                raise
+
+
+def merge_access_payload(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = {
+        "version": max(int(current.get("version", 1) or 1), int(incoming.get("version", 1) or 1)),
+        "updated_at": now_iso(),
+        "users": dict(current.get("users", {})),
+        "events": list(current.get("events", [])),
+    }
+    for wa_id, incoming_user in incoming.get("users", {}).items():
+        existing_user = dict(merged["users"].get(wa_id, {}))
+        merged["users"][wa_id] = merge_user(existing_user, dict(incoming_user))
+
+    seen_events = {event_key(event) for event in merged["events"]}
+    for event in incoming.get("events", []):
+        key = event_key(event)
+        if key in seen_events:
+            continue
+        seen_events.add(key)
+        merged["events"].append(event)
+    if len(merged["events"]) > MAX_STORED_EVENTS:
+        merged["events"] = merged["events"][-MAX_STORED_EVENTS:]
+    return merged
+
+
+def merge_user(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    if not existing:
+        return incoming
+    merged = {**existing, **incoming}
+    if existing.get("status") == BLOCKED and incoming.get("status") != BLOCKED:
+        merged["status"] = BLOCKED
+        if existing.get("blocked_at"):
+            merged["blocked_at"] = existing["blocked_at"]
+    merged["feedback_count"] = max(
+        int(existing.get("feedback_count", 0) or 0),
+        int(incoming.get("feedback_count", 0) or 0),
+    )
+    merged["failed_question_count"] = max(
+        int(existing.get("failed_question_count", 0) or 0),
+        int(incoming.get("failed_question_count", 0) or 0),
+    )
+    return merged
+
+
+def event_key(event: dict[str, Any]) -> str:
+    event_id = str(event.get("id", "")).strip()
+    if event_id:
+        return event_id
+    return "|".join(
+        str(event.get(key, ""))
+        for key in ("created_at", "kind", "wa_id", "phone_number", "text")
+    )
 
 
 class WhatsAppAccessControl:
@@ -176,7 +241,7 @@ class WhatsAppAccessControl:
         if not self.invite_code or not secrets.compare_digest(code.strip(), self.invite_code):
             self.record_seen(wa_id_norm, phone_norm, profile_name=profile_name)
             return AccessDecision(False, PENDING, "invalid_invite_code", wa_id_norm, phone_norm)
-        self.approve(wa_id_norm, phone_norm, profile_name=profile_name, source="invite_code")
+        self.approve(wa_id_norm, phone_norm, profile_name=profile_name, source="password")
         return AccessDecision(True, APPROVED, "invite_code_redeemed", wa_id_norm, phone_norm)
 
     def record_seen(self, wa_id: object, phone_number: object = "", *, profile_name: str = "") -> None:
@@ -208,9 +273,126 @@ class WhatsAppAccessControl:
     def revoke(self, wa_id: object, phone_number: object = "", *, notes: str = "") -> None:
         self._set_status(wa_id, phone_number, PENDING, source="manual", notes=notes)
 
-    def users(self) -> list[dict[str, Any]]:
+    def users(self, status: str = "") -> list[dict[str, Any]]:
         payload = self.store.load()
-        return sorted(payload.get("users", {}).values(), key=lambda item: str(item.get("wa_id", "")))
+        users = list(payload.get("users", {}).values())
+        if status:
+            users = [user for user in users if str(user.get("status", "")) == status]
+        return sorted(users, key=lambda item: str(item.get("wa_id", "")))
+
+    def remove(self, wa_id: object, phone_number: object = "") -> None:
+        wa_id_norm = normalize_identifier(wa_id)
+        phone_norm = normalize_identifier(phone_number) or wa_id_norm
+        if not wa_id_norm:
+            raise ValueError("wa_id_required")
+        payload = self.store.load()
+        payload.setdefault("users", {}).pop(wa_id_norm, None)
+        payload["events"] = [
+            event
+            for event in payload.get("events", [])
+            if event.get("wa_id") != wa_id_norm and event.get("phone_number") != phone_norm
+        ]
+        self.store.save(payload)
+
+    def record_event(
+        self,
+        kind: str,
+        *,
+        wa_id: object,
+        phone_number: object = "",
+        profile_name: str = "",
+        text: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        wa_id_norm = normalize_identifier(wa_id)
+        if not wa_id_norm:
+            return
+        phone_norm = normalize_identifier(phone_number) or wa_id_norm
+        payload = self.store.load()
+        user = self._ensure_user(payload, wa_id_norm, phone_norm)
+        user["last_seen_at"] = now_iso()
+        if profile_name:
+            user["profile_name"] = profile_name
+        if kind in {"feedback", "failed_question"}:
+            user[f"{kind}_count"] = int(user.get(f"{kind}_count", 0) or 0) + 1
+        event = {
+            "id": secrets.token_hex(12),
+            "created_at": now_iso(),
+            "kind": kind,
+            "wa_id": wa_id_norm,
+            "phone_number": phone_norm,
+            "profile_name": profile_name or user.get("profile_name", ""),
+            "text": str(text or "").strip()[:MAX_EVENT_TEXT_CHARS],
+            "metadata": metadata or {},
+        }
+        events = payload.setdefault("events", [])
+        events.append(event)
+        if len(events) > MAX_STORED_EVENTS:
+            payload["events"] = events[-MAX_STORED_EVENTS:]
+        self.store.save(payload)
+
+    def record_feedback(
+        self,
+        text: str,
+        *,
+        wa_id: object,
+        phone_number: object = "",
+        profile_name: str = "",
+    ) -> None:
+        self.record_event(
+            "feedback",
+            wa_id=wa_id,
+            phone_number=phone_number,
+            profile_name=profile_name,
+            text=text,
+        )
+
+    def record_failed_question(
+        self,
+        question: str,
+        *,
+        wa_id: object,
+        phone_number: object = "",
+        profile_name: str = "",
+        response_type: str = "",
+        top_score: float = 0.0,
+        top_source: str = "",
+    ) -> None:
+        self.record_event(
+            "failed_question",
+            wa_id=wa_id,
+            phone_number=phone_number,
+            profile_name=profile_name,
+            text=question,
+            metadata={
+                "response_type": response_type,
+                "top_score": top_score,
+                "top_source": top_source,
+            },
+        )
+
+    def events(self, kind: str = "", limit: int = 25) -> list[dict[str, Any]]:
+        payload = self.store.load()
+        events = list(payload.get("events", []))
+        if kind:
+            events = [event for event in events if str(event.get("kind", "")) == kind]
+        return list(reversed(events[-max(1, limit) :]))
+
+    def summary(self) -> dict[str, Any]:
+        users = self.users()
+        counts = {APPROVED: 0, PENDING: 0, BLOCKED: 0}
+        for user in users:
+            status = str(user.get("status", PENDING))
+            counts[status] = counts.get(status, 0) + 1
+        return {
+            "unique_users": len(users),
+            "approved": counts.get(APPROVED, 0),
+            "pending": counts.get(PENDING, 0),
+            "blocked": counts.get(BLOCKED, 0),
+            "feedback_count": len(self.events("feedback", limit=MAX_STORED_EVENTS)),
+            "failed_question_count": len(self.events("failed_question", limit=MAX_STORED_EVENTS)),
+            "users": users,
+        }
 
     def _user(self, wa_id: str) -> dict[str, Any]:
         payload = self.store.load()
@@ -229,6 +411,8 @@ class WhatsAppAccessControl:
                 "profile_name": "",
                 "source": "",
                 "notes": "",
+                "feedback_count": 0,
+                "failed_question_count": 0,
             },
         )
         if phone_number and not user.get("phone_number"):
@@ -284,7 +468,7 @@ def access_control_from_env(root: Path) -> WhatsAppAccessControl:
 
     return WhatsAppAccessControl(
         store,
-        invite_code=os.environ.get("WHATSAPP_INVITE_CODE", ""),
+        invite_code=os.environ.get("WHATSAPP_PASSWORD", "") or os.environ.get("WHATSAPP_INVITE_CODE", ""),
         allowed_numbers=parse_identifier_set(os.environ.get("WHATSAPP_ALLOWED_NUMBERS", "")),
         blocked_numbers=parse_identifier_set(os.environ.get("WHATSAPP_BLOCKED_NUMBERS", "")),
         allowed_wa_ids=parse_identifier_set(os.environ.get("WHATSAPP_ALLOWED_WA_IDS", "")),
