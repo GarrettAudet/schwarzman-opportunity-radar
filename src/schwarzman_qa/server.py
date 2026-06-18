@@ -131,14 +131,7 @@ def external_request_url(headers: Any, path: str) -> str:
 def is_help_request(text: str) -> bool:
     lowered = re.sub(r"\s+", " ", text.strip().lower())
     normalized = lowered.replace(" u ", " you ")
-    if normalized in {"/help", "help", "/start", "start"}:
-        return True
-    help_patterns = [
-        r"\bwhat can (you|it|this bot|the bot) do\b",
-        r"\bwhat (are you|is this bot) for\b",
-        r"\bhow (do|can) i use (you|it|this|this bot|the bot)\b",
-    ]
-    return any(re.search(pattern, normalized) for pattern in help_patterns)
+    return normalized in {"/help", "help", "/start", "start"}
 
 
 def parse_feedback(text: str) -> str | None:

@@ -242,7 +242,7 @@ def is_resource_catalog_question(question: str) -> bool:
         r"\bwhat (questions|kinds of questions|types of questions|topics) can (you|it|this|this bot|the bot)\b",
         r"\bwhat schwarzman.*questions can (you|it|this|this bot|the bot)\b",
         r"\bwhat tsinghua.*questions can (you|it|this|this bot|the bot)\b",
-        r"\bwhat can (you|it|this bot|the bot) (answer|help with|search)\b",
+        r"\bwhat can (you|it|this|this bot|the bot|this tool|the tool|this app|the app) (answer|help with|search|do)\b",
         r"\bwhat topics (can|do|does|are) (you|it|this bot|the bot|this)\b.*\b(answer|cover|search|use|have|available)\b",
         r"\bwhat can (you|it|this bot|the bot) search\b",
         r"\bwhat (resources|materials|sources|documents|docs|files) (can|do|does|are) (you|it|this bot|the bot|this)\b.*\b(search|use|cover|have|available)\b",
@@ -464,9 +464,10 @@ def is_capability_question(question: str) -> bool:
     if normalized in {"/help", "help", "/start", "start"}:
         return True
     patterns = [
-        r"\bwhat can (you|it|this bot|the bot) do\b",
-        r"\bwhat (are you|is this bot) for\b",
-        r"\bhow (do|can) i use (you|it|this|this bot|the bot)\b",
+        r"\bwhat can (you|it|this|this bot|the bot|this tool|the tool|this app|the app) do\b",
+        r"\bwhat (are you|is this|is this bot|is this tool|is this app) for\b",
+        r"\bhow (do|can) i use (you|it|this|this bot|the bot|this tool|the tool|this app|the app)\b",
+        r"\bwhat (can|does) (this|this bot|the bot|this tool|the tool|this app|the app) (help with|answer|search)\b",
     ]
     return any(re.search(pattern, normalized) for pattern in patterns)
 
