@@ -166,6 +166,79 @@ def extractive_answer(results: list[dict[str, Any]], max_evidence: int = 3) -> s
     return "\n".join(lines)
 
 
+def is_broad_packing_question(question: str) -> bool:
+    lowered = question.lower()
+    if not re.search(r"\b(pack|packing|bring)\b", lowered):
+        return False
+    return bool(
+        re.search(
+            r"\b(advice|tips?|what should|what do|what to|recommend|recommendations?|list|essentials?)\b",
+            lowered,
+        )
+    )
+
+
+def packing_answer(results: list[dict[str, Any]]) -> str | None:
+    packing_results = [
+        result
+        for result in results
+        if "packing list" in str(result.get("source_file", "") or result.get("source_title", "")).lower()
+    ]
+    if not packing_results:
+        return None
+
+    evidence: list[tuple[str, str]] = []
+    required_quote = packing_quote_for(
+        packing_results,
+        ["Valid passport", "Original Admission Notice", "Original JW202", "International bank card"],
+    )
+    advice_quote = packing_quote_for(
+        packing_results,
+        ["Try to bring less stuff", "Prescription medication", "business casual outfits", "previous cohorts"],
+    )
+    for item in (required_quote, advice_quote):
+        if item and item not in evidence:
+            evidence.append(item)
+    if not evidence:
+        for result in packing_results[:2]:
+            ref = str(result.get("citation_ref", "")).strip()
+            quote = clean_quote(str(result.get("text", "")), max_chars=260)
+            if ref and quote:
+                evidence.append((ref, quote))
+
+    if not evidence:
+        return None
+
+    lines = [
+        "Answer:",
+        "For packing, start with essentials: bring your required documents, passport/X1 visa, any original Admission Notice or JW202 you received by mail, medical exam materials if already completed, an international bank card, some RMB cash for arrival, a SIM-compatible phone, prescription medication, and a few professional outfits/layers. The available materials also advise bringing less than you think because you will accumulate things in Beijing. [1]"
+        + (" [2]" if len(evidence) > 1 else ""),
+        "",
+        "Evidence:",
+    ]
+    for idx, (ref, quote) in enumerate(evidence[:2], start=1):
+        lines.append(f"[{idx}] \"{quote}\" - {ref}")
+    return "\n".join(lines)
+
+
+def packing_quote_for(results: list[dict[str, Any]], phrases: list[str]) -> tuple[str, str] | None:
+    for phrase in phrases:
+        phrase_lower = phrase.lower()
+        for result in results:
+            text = str(result.get("text", ""))
+            index = text.lower().find(phrase_lower)
+            if index < 0:
+                continue
+            ref = str(result.get("citation_ref", "")).strip()
+            if not ref:
+                continue
+            snippet = text[index : index + 320]
+            quote = clean_quote(snippet, max_chars=260)
+            if quote:
+                return ref, quote
+    return None
+
+
 def should_not_found_without_llm(question: str) -> bool:
     lowered = question.lower()
     current_year = datetime.now().year
@@ -317,6 +390,11 @@ def answer_with_agents(
     if retrieval_only:
         emit("answer_ready", {"response_type": "retrieval_only"})
         return {**base, "response_type": "retrieval_only", "final_answer": ""}
+    if is_broad_packing_question(guard.normalized_text):
+        deterministic_answer = packing_answer(results)
+        if deterministic_answer:
+            emit("answer_ready", {"response_type": "answer", "fallback": "packing"})
+            return {**base, "response_type": "answer", "final_answer": deterministic_answer}
     if should_not_found_without_llm(guard.normalized_text):
         emit("answer_ready", {"response_type": "not_found"})
         return {**base, "response_type": "not_found", "final_answer": safe_not_found()}

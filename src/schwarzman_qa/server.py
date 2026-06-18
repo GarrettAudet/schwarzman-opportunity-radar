@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import tempfile
 import threading
@@ -133,7 +134,19 @@ def external_request_url(headers: Any, path: str) -> str:
 
 
 def is_help_request(text: str) -> bool:
-    return text.strip().lower() in {"/help", "help", "/start", "start"}
+    lowered = re.sub(r"\s+", " ", text.strip().lower())
+    normalized = lowered.replace(" u ", " you ")
+    if normalized in {"/help", "help", "/start", "start"}:
+        return True
+    help_patterns = [
+        r"\bwhat (questions|kinds of questions|topics) can (you|this|the bot)\b",
+        r"\bwhat can (you|this bot) (answer|do|help with)\b",
+        r"\bhow (do|can) i use (you|this|the bot)\b",
+        r"\bwhat (are you|is this bot) for\b",
+        r"\bwhat schwarzman.*questions can (you|this|the bot)\b",
+        r"\bwhat tsinghua.*questions can (you|this|the bot)\b",
+    ]
+    return any(re.search(pattern, normalized) for pattern in help_patterns)
 
 
 def parse_feedback(text: str) -> str | None:
