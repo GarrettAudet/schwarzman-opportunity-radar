@@ -134,6 +134,10 @@ def clean_evidence_quote(text: str, max_chars: int = 220) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     if len(re.findall(r"[A-Za-z0-9]", text)) < 20:
         return ""
+    words = re.findall(r"[A-Za-z]+", text)
+    single_letter_words = sum(1 for word in words if len(word) == 1)
+    if len(words) >= 20 and single_letter_words / max(1, len(words)) >= 0.35:
+        return ""
     if len(text) <= max_chars:
         return text
     return text[:max_chars].rsplit(" ", 1)[0].rstrip(".,;:") + "..."

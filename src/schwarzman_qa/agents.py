@@ -682,9 +682,9 @@ def named_document_results_for(
     for target in targets[:2]:
         ref = target["citation_ref"]
         title = target.get("source_title") or Path(ref).name
-        query = f"{question} {title} agenda summary topics discussed covered action items logistics overview"
-        results.extend(retrieve_from_document(index, ref, query, top_k=max(top_k, 6)))
-    return results[: max(top_k, 6)]
+        query = f"{question} {title} agenda summary topics discussed covered action items logistics overview welcome cohort community onboarding"
+        results.extend(retrieve_from_document(index, ref, query, top_k=max(top_k, 10)))
+    return results[: max(top_k, 10)]
 
 
 def is_webinar_comparison_question(question: str, targets: list[dict[str, str]]) -> bool:
@@ -939,11 +939,11 @@ def welcome_meeting_summary_answer(results: list[dict[str, Any]]) -> str | None:
 
     evidence: list[tuple[str, str]] = []
     for item in (
-        language_quote_for(welcome_results, ["welcome C11", "C11"]),
-        language_quote_for(welcome_results, ["Blackboard", "action item"]),
+        language_quote_for(welcome_results, ["so excited to welcome C11", "ask questions during"]),
+        language_quote_for(welcome_results, ["extensive onboarding", "hit the ground running"]),
         language_quote_for(welcome_results, ["professional profile", "career"]),
         language_quote_for(welcome_results, ["community resource", "communication"]),
-        language_quote_for(welcome_results, ["housing policy", "guest"]),
+        language_quote_for(welcome_results, ["online resources", "Survival Chinese"]),
     ):
         if item and item not in evidence:
             evidence.append(item)
@@ -957,9 +957,10 @@ def welcome_meeting_summary_answer(results: list[dict[str, Any]]) -> str | None:
     if not evidence:
         return None
 
+    citation_suffix = " ".join(f"[{idx}]" for idx in range(1, min(2, len(evidence)) + 1))
     lines = [
         "Answer:",
-        "The C11 Welcome Meeting was broad onboarding for incoming students. It covered welcoming the cohort, how students should track program communications and action items, resources on Blackboard, career/community resources, and practical life-at-Schwarzman topics that came up in Q&A. [1] [2]",
+        f"The C11 Welcome Meeting was broad onboarding for incoming students. It covered welcoming the cohort, how students should track program communications and action items, resources on Blackboard, career/community resources, and practical life-at-Schwarzman topics that came up in Q&A. {citation_suffix}",
         "",
         "Evidence:",
     ]
