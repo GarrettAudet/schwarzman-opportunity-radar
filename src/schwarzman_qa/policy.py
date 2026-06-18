@@ -12,6 +12,21 @@ CITATION_RE = re.compile(r"\[(\d+)\]")
 NOT_FOUND_TEXT = "I don't know from the available resources."
 NO_SOURCE_TEXT = "No reviewed source was strong enough to answer this."
 OUT_OF_SCOPE_TEXT = "That is beyond my scope. I can only answer Schwarzman/Tsinghua questions using the available resources."
+MOJIBAKE_MARKERS = ("â", "ã", "Ã", "æ", "å", "ï", "Â")
+TYPOGRAPHIC_TRANSLATION = str.maketrans(
+    {
+        "\u00a0": " ",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2026": "...",
+        "\u3010": "[",
+        "\u3011": "]",
+    }
+)
 
 
 @dataclass
@@ -62,6 +77,8 @@ def clean_answer_text(answer: str) -> str:
 
 
 def clean_visible_text(text: str) -> str:
+    text = repair_mojibake(text)
+    text = text.translate(TYPOGRAPHIC_TRANSLATION)
     text = replace_downloaded_language(text)
     text = (
         text.replace("\\r\\n", "\n")
@@ -70,12 +87,32 @@ def clean_visible_text(text: str) -> str:
         .replace("\r", "\n")
         .replace("\t", " ")
     )
-    text = re.sub(r"[\u25aa\u25a0\u25cf\u2022\uf06f]\s*", "- ", text)
+    text = re.sub(r"[\u25a1\u25aa\u25a0\u25cf\u2022\uf06f]\s*", "- ", text)
     text = re.sub(r"(?m)^\s*[\?\ufffd]\s+(?=[A-Z0-9])", "- ", text)
     text = re.sub(r"[ \f\v]+", " ", text)
     text = re.sub(r" *\n *", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return "\n".join(line.strip() for line in text.strip().splitlines()).strip()
+
+
+def repair_mojibake(text: str) -> str:
+    if not any(marker in text for marker in MOJIBAKE_MARKERS):
+        return text
+    try:
+        repaired = text.encode("cp1252", errors="ignore").decode("utf-8", errors="ignore")
+    except UnicodeError:
+        return text
+    original_markers = sum(text.count(marker) for marker in MOJIBAKE_MARKERS)
+    repaired_markers = sum(repaired.count(marker) for marker in MOJIBAKE_MARKERS)
+    if repaired and repaired_markers < original_markers and len(repaired) >= len(text) * 0.6:
+        return repaired
+    return text
+
+
+def strip_cjk_text(text: str) -> str:
+    text = re.sub(r"[\u3400-\u9fff]+", " ", text)
+    text = re.sub(r"[\uff00-\uffef]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def replace_downloaded_language(text: str) -> str:
@@ -93,7 +130,10 @@ def replace_downloaded_language(text: str) -> str:
 
 def clean_evidence_quote(text: str, max_chars: int = 220) -> str:
     text = clean_visible_text(text)
+    text = strip_cjk_text(text)
     text = re.sub(r"\s+", " ", text).strip()
+    if len(re.findall(r"[A-Za-z0-9]", text)) < 20:
+        return ""
     if len(text) <= max_chars:
         return text
     return text[:max_chars].rsplit(" ", 1)[0].rstrip(".,;:") + "..."
@@ -201,7 +241,9 @@ def compact_evidence_sections(
         matched_numbers.add(number)
         label = source_label(ref)
         if len(quote_lines) < max_quotes:
-            quote_lines.append(format_chat_quote_line(quote))
+            quote_line = format_chat_quote_line(quote)
+            if quote_line:
+                quote_lines.append(quote_line)
         add_source(number, label)
         if len(source_order) >= max_sources and len(quote_lines) >= max_quotes:
             break
@@ -248,7 +290,10 @@ def source_label(ref: str) -> str:
 
 
 def format_chat_quote_line(quote: str) -> str:
-    return f"- {quote_label(quote)}: \"{clean_chat_quote(quote)}\""
+    cleaned = clean_chat_quote(quote)
+    if not cleaned:
+        return ""
+    return f"- {quote_label(quote)}: \"{cleaned}\""
 
 
 def quote_label(quote: str) -> str:

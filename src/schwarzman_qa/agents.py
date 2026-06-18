@@ -17,6 +17,7 @@ from .policy import (
     OUT_OF_SCOPE_TEXT,
     check_final_answer,
     clean_evidence_quote,
+    clean_visible_text,
     format_answer_payload,
 )
 from .retrieval import load_index, retrieve
@@ -65,6 +66,8 @@ RESOURCE_SCOPE_TERMS = {
     "career",
     "campus",
     "consulting",
+    "cover letter",
+    "cover letters",
     "course",
     "courses",
     "degree",
@@ -85,6 +88,7 @@ RESOURCE_SCOPE_TERMS = {
     "internship",
     "internship annotation",
     "jw202",
+    "linkedin",
     "job",
     "jobs",
     "letter request",
@@ -93,6 +97,7 @@ RESOURCE_SCOPE_TERMS = {
     "medication",
     "mandarin",
     "orientation",
+    "apartment",
     "packing",
     "passport",
     "permit",
@@ -100,6 +105,9 @@ RESOURCE_SCOPE_TERMS = {
     "physical exam",
     "pre-program",
     "private equity",
+    "rent",
+    "rental",
+    "renting",
     "resource",
     "residence permit",
     "residence permits",
@@ -127,6 +135,10 @@ RESOURCE_SCOPE_TERMS = {
     "visa",
     "vaccination",
     "wechat",
+    "ngo",
+    "ngos",
+    "nonprofit",
+    "nonprofits",
     "chinese language",
     "chinese language program",
     "chinese language programme",
@@ -188,6 +200,11 @@ def is_resource_catalog_question(question: str) -> bool:
     normalized = lowered.replace(" u ", " you ")
     if normalized in {"/resources", "resources", "/sources", "sources", "/catalog", "catalog"}:
         return True
+    if re.search(
+        r"\b(resources|materials|sources|documents|docs|files)\b.*\b(for|about|on|related to)\b",
+        normalized,
+    ):
+        return False
     patterns = [
         r"\bwhat (questions|kinds of questions|types of questions|topics) can (you|it|this|this bot|the bot)\b",
         r"\bwhat schwarzman.*questions can (you|it|this|this bot|the bot)\b",
@@ -257,12 +274,99 @@ def clean_quote(text: str, max_chars: int = 450) -> str:
     return clean_evidence_quote(text, max_chars=max_chars)
 
 
+def is_todo_question(question: str) -> bool:
+    lowered = question.lower()
+    return bool(
+        re.search(
+            r"\b(to[- ]?do|todo|action items?|current tasks?|current items?|deadlines?|what.*due)\b",
+            lowered,
+        )
+    )
+
+
+def todo_answer(results: list[dict[str, Any]]) -> str | None:
+    todo_result = next(
+        (
+            result
+            for result in results
+            if "blackboard to-do" in str(result.get("citation_ref", "") or result.get("source_file", "")).lower()
+        ),
+        None,
+    )
+    if not todo_result:
+        return None
+
+    ref = str(todo_result.get("citation_ref", "")).strip()
+    text = clean_visible_text(str(todo_result.get("text", "")))
+    deadline_blocks = list(
+        re.finditer(r"\[Deadline\s+([^\]]+)\]\s*(.*?)(?=\[Deadline\s+[^\]]+\]|\Z)", text, flags=re.I | re.S)
+    )
+    if not ref or not deadline_blocks:
+        return None
+
+    items: list[tuple[str, str, str, str]] = []
+    for block in deadline_blocks[:4]:
+        deadline = re.sub(r"\s+", " ", block.group(1)).strip()
+        body = re.sub(r"\s+", " ", block.group(2)).strip()
+        title, detail = split_todo_body(body)
+        if not title:
+            continue
+        quote = clean_quote(detail or body, max_chars=280)
+        items.append((deadline, title, detail, quote))
+
+    if not items:
+        return None
+
+    lines = ["Answer:", "The current To-Do items I found are:"]
+    for idx, (deadline, title, detail, _quote) in enumerate(items, start=1):
+        sentence = f"{idx}. {title} - due {deadline}."
+        if detail:
+            sentence += f" {detail}"
+        sentence += f" [{idx}]"
+        lines.append(sentence)
+
+    lines.extend(["", "Evidence:"])
+    for idx, (_deadline, _title, _detail, quote) in enumerate(items, start=1):
+        if quote:
+            lines.append(f"[{idx}] \"{quote}\" - {ref}")
+    return "\n".join(lines)
+
+
+def split_todo_body(body: str) -> tuple[str, str]:
+    if ":" in body[:220]:
+        title, rest = body.split(":", 1)
+    else:
+        sentence_match = re.match(r"(.+?[.!?])\s+(.*)$", body)
+        if sentence_match:
+            title, rest = sentence_match.groups()
+        else:
+            title, rest = body, ""
+    title = title.strip(" .:-")
+    detail = first_todo_detail(rest)
+    return title, detail
+
+
+def first_todo_detail(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    preferred = re.compile(r"\b(review|fill out|submit|complete|upload|mandatory)\b", flags=re.I)
+    for sentence in sentences:
+        sentence = sentence.strip(" -")
+        if len(sentence) >= 30 and preferred.search(sentence):
+            return sentence.rstrip(".") + "."
+    for sentence in sentences:
+        sentence = sentence.strip(" -")
+        if len(sentence) >= 30:
+            return sentence.rstrip(".") + "."
+    return text[:220].rsplit(" ", 1)[0].rstrip(".,;:") + "."
+
+
 def extractive_answer(results: list[dict[str, Any]], max_evidence: int = 3) -> str:
     lines = [
         "Answer:",
-        "I found reviewed resource excerpts that appear relevant. Start with the cited excerpts in [1]"
-        + (", [2]" if len(results) > 1 else "")
-        + (", and [3]." if len(results) > 2 else "."),
+        "I found relevant source text in the available resources, but not enough structured detail to summarize it safely. The strongest excerpts are below. [1]",
         "",
         "Evidence:",
     ]
@@ -293,6 +397,23 @@ def is_broad_packing_question(question: str) -> bool:
             lowered,
         )
     )
+
+
+def is_language_program_question(question: str) -> bool:
+    lowered = question.lower()
+    return bool(
+        re.search(
+            r"\b(mandarin|learn chinese|chinese language|language learning|language program|language programme|iup|cet|clp)\b",
+            lowered,
+        )
+    )
+
+
+def is_general_residence_permit_question(question: str) -> bool:
+    lowered = question.lower()
+    if not re.search(r"\b(residence permits?|stay permits?)\b", lowered):
+        return False
+    return not bool(re.search(r"\b(work authorization|work permit|internship annotation|employer)\b", lowered))
 
 
 def is_capability_question(question: str) -> bool:
@@ -351,6 +472,99 @@ def packing_answer(results: list[dict[str, Any]]) -> str | None:
     return "\n".join(lines)
 
 
+def language_program_answer(results: list[dict[str, Any]]) -> str | None:
+    language_results = [
+        result
+        for result in results
+        if any(
+            marker in str(result.get("source_file", "") or result.get("source_title", "")).lower()
+            for marker in ("language program", "language programme", "iup", "cet", "clp")
+        )
+    ]
+    if not language_results:
+        return None
+
+    evidence: list[tuple[str, str]] = []
+    overview_quote = language_quote_for(language_results, ["Q&A about Language Programs IUP, CET, CLP"])
+    level_quote = language_quote_for(language_results, ["absolute beginners to Advanced High"])
+    cost_quote = language_quote_for(language_results, ["COST COMPARISON", "IUP:", "CET:", "CLP:"])
+    for item in (overview_quote, level_quote, cost_quote):
+        if item and item not in evidence:
+            evidence.append(item)
+    if not evidence:
+        for result in language_results[:2]:
+            ref = str(result.get("citation_ref", "")).strip()
+            quote = clean_quote(str(result.get("text", "")), max_chars=260)
+            if ref and quote:
+                evidence.append((ref, quote))
+
+    if not evidence:
+        return None
+
+    lines = [
+        "Answer:",
+        "The available resources point to language-program materials rather than generic self-study content. For Mandarin or Chinese-language study, start with the IUP/CET/CLP language-program FAQ and related language-program resources. They cover program options, timing, cost, housing, visa questions, and level fit. [1]"
+        + (" [2]" if len(evidence) > 1 else ""),
+        "",
+        "Evidence:",
+    ]
+    for idx, (ref, quote) in enumerate(evidence[:2], start=1):
+        lines.append(f"[{idx}] \"{quote}\" - {ref}")
+    return "\n".join(lines)
+
+
+def language_quote_for(results: list[dict[str, Any]], phrases: list[str]) -> tuple[str, str] | None:
+    for phrase in phrases:
+        phrase_lower = phrase.lower()
+        for result in results:
+            text = str(result.get("text", ""))
+            index = text.lower().find(phrase_lower)
+            if index < 0:
+                continue
+            ref = str(result.get("citation_ref", "")).strip()
+            if not ref:
+                continue
+            snippet = text[index : index + 380]
+            quote = clean_quote(snippet, max_chars=280)
+            if quote:
+                return ref, quote
+    return None
+
+
+def residence_permit_answer(results: list[dict[str, Any]]) -> str | None:
+    evidence: list[tuple[str, str]] = []
+    study_quote = language_quote_for(
+        results,
+        ["Foreign citizens who come to China to pursue study", "must register with the public security authorities"],
+    )
+    form_quote = language_quote_for(results, ["For residence permit only", "Employee", "Student"])
+    work_quote = language_quote_for(results, ["This is different from the work permit", "work permit authorizing you to work"])
+    for item in (study_quote, form_quote, work_quote):
+        if item and item not in evidence:
+            evidence.append(item)
+    if not evidence:
+        return None
+
+    lines = ["Answer:"]
+    if len(evidence) >= 2:
+        lines.append(
+            "For the standard student situation, the available materials point to a residence permit tied to study after arriving in China. The resources say foreign citizens who come to China to study must register with public security authorities for a residence permit, and the application form lists Student as a residence-permit category. [1] [2]"
+        )
+    else:
+        lines.append(
+            "For the standard student situation, the available materials point to a residence permit tied to study after arriving in China. [1]"
+        )
+    if len(evidence) >= 3:
+        lines.append(
+            "If you mean staying in China for post-graduation work, that is a separate path: the resources distinguish the work permit from the longer-term residence permit. [3]"
+        )
+    lines.append("Confirm current requirements with Tsinghua/Schwarzman or the relevant official office, since visa and residence-permit rules can change.")
+    lines.extend(["", "Evidence:"])
+    for idx, (ref, quote) in enumerate(evidence[:3], start=1):
+        lines.append(f"[{idx}] \"{quote}\" - {ref}")
+    return "\n".join(lines)
+
+
 def packing_quote_for(results: list[dict[str, Any]], phrases: list[str]) -> tuple[str, str] | None:
     for phrase in phrases:
         phrase_lower = phrase.lower()
@@ -394,6 +608,28 @@ def is_resource_scope_question(question: str, _results: list[dict[str, Any]], _t
     return False
 
 
+def has_result_text(results: list[dict[str, Any]], terms: list[str]) -> bool:
+    for result in results:
+        haystack = " ".join(
+            str(result.get(key, ""))
+            for key in ("source_file", "source_title", "citation_ref", "file_summary", "text")
+        ).lower()
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", haystack) for term in terms):
+            return True
+    return False
+
+
+def should_not_found_for_irrelevant_results(question: str, results: list[dict[str, Any]]) -> bool:
+    lowered = question.lower()
+    topic_terms = [
+        (r"\b(apartment|rent|rental|renting|housing)\b", ["apartment", "rent", "rental", "housing"]),
+    ]
+    for pattern, terms in topic_terms:
+        if re.search(pattern, lowered) and not has_result_text(results, terms):
+            return True
+    return False
+
+
 def retrieval_query_for(question: str) -> str:
     lowered = question.lower()
     aliases: list[str] = []
@@ -405,6 +641,12 @@ def retrieval_query_for(question: str) -> str:
         aliases.append("permit")
     if re.search(r"\bmandarin\b|\blearn chinese\b|\bchinese language\b|\blanguage learning\b", lowered):
         aliases.extend(["chinese language program", "language programme", "IUP", "CET", "CLP"])
+    if re.search(r"\blinkedin\b", lowered):
+        aliases.extend(["LinkedIn", "RockYourProfile", "profile"])
+    if re.search(r"\bcover letters?\b", lowered):
+        aliases.extend(["cover letter", "Schwarzman Scholars Cover Letter Guide"])
+    if re.search(r"\bnonprofits?\b|\bngos?\b", lowered):
+        aliases.extend(["nonprofit", "NGO", "public sector"])
     if not aliases:
         return question
     return f"{question} {' '.join(aliases)}"
@@ -556,13 +798,31 @@ def answer_with_agents(
     if not results or top_score < CLARIFY_THRESHOLD:
         emit("answer_ready", {"response_type": "not_found"})
         return {**base, "response_type": "not_found", "final_answer": safe_not_found()}
+    if should_not_found_for_irrelevant_results(guard.normalized_text, results):
+        emit("answer_ready", {"response_type": "not_found", "reason": "topic_terms_not_in_results"})
+        return {**base, "response_type": "not_found", "final_answer": safe_not_found()}
     if retrieval_only:
         emit("answer_ready", {"response_type": "retrieval_only"})
         return {**base, "response_type": "retrieval_only", "final_answer": ""}
+    if is_todo_question(guard.normalized_text):
+        deterministic_answer = todo_answer(results)
+        if deterministic_answer:
+            emit("answer_ready", {"response_type": "answer", "fallback": "todo"})
+            return {**base, "response_type": "answer", "final_answer": deterministic_answer}
     if is_broad_packing_question(guard.normalized_text):
         deterministic_answer = packing_answer(results)
         if deterministic_answer:
             emit("answer_ready", {"response_type": "answer", "fallback": "packing"})
+            return {**base, "response_type": "answer", "final_answer": deterministic_answer}
+    if is_general_residence_permit_question(guard.normalized_text):
+        deterministic_answer = residence_permit_answer(results)
+        if deterministic_answer:
+            emit("answer_ready", {"response_type": "answer", "fallback": "residence_permit"})
+            return {**base, "response_type": "answer", "final_answer": deterministic_answer}
+    if is_language_program_question(guard.normalized_text):
+        deterministic_answer = language_program_answer(results)
+        if deterministic_answer:
+            emit("answer_ready", {"response_type": "answer", "fallback": "language_program"})
             return {**base, "response_type": "answer", "final_answer": deterministic_answer}
     if should_not_found_without_llm(guard.normalized_text):
         emit("answer_ready", {"response_type": "not_found"})
