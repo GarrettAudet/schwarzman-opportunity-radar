@@ -43,6 +43,48 @@ Put source files in one of these folders:
 - `data/rencai/raw` - files saved by the extension's **Save Corpus** button.
 - `data/transcripts/raw` - video transcripts, including `.txt`, `.md`, `.srt`, `.vtt`, `.docx`, and `.pdf`.
 
+Recommended update workflow:
+
+1. Create a local working branch, especially if you are also changing prompts,
+   scripts, or review policy:
+
+   ```powershell
+   git checkout -b corpus/update-YYYY-MM-DD
+   ```
+
+2. Add new student-facing files to `data/blackboard`,
+   `data/rencai/raw`, or `data/transcripts/raw`.
+3. Rebuild and sync the local review sheet:
+
+   ```powershell
+   python scripts\build_corpus_qa.py --root .
+   python scripts\sync_corpus_review.py --root .
+   ```
+
+4. Review `data/corpus/review/corpus-review.csv`. Set new trusted rows to
+   `include` or `summarize_only`; leave questionable files as `review`,
+   `needs_fix`, or `drop`.
+5. Rebuild the index and smoke-test retrieval:
+
+   ```powershell
+   python scripts\build_local_index.py --root .
+   python scripts\ask_corpus.py --root . --retrieval-only "What documents do I need for the X1 visa?"
+   ```
+
+6. Copy the latest index to the deployment filename:
+
+   ```powershell
+   Copy-Item (Get-ChildItem data\corpus\index\local-index-*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName deploy\index\local-index.json -Force
+   ```
+
+7. Upload `deploy/index/local-index.json` to the private
+   `GarrettAudet/SchwarzmanQnA-Index` repo as `local-index.json`.
+8. Redeploy or restart Render so the service reloads the updated index.
+
+The raw source files, extracted text, chunks, review CSV, and deploy index are
+ignored in this app repo. Keep them local or in private storage; do not push
+student-resource content to the public app repo.
+
 Then run from the repo root:
 
 ```powershell
@@ -188,10 +230,10 @@ send the final cited answer when the `final` event arrives.
 
 ## WhatsApp Access Control
 
-The recommended group-limited flow is invite-code enrollment:
+The recommended group-limited flow is password enrollment:
 
-1. Post a code in the student WhatsApp group.
-2. Students DM the bot with that code once.
+1. Post a password in the student WhatsApp group.
+2. Students DM the bot with that password once.
 3. The bot stores their `wa_id`, phone number, display name, and approval status.
 4. Future questions are answered only for approved users.
 5. Blocked users are denied even if they previously enrolled.
@@ -205,7 +247,8 @@ for small pilots, or use the private GitHub-backed JSON store described in
 Useful env vars:
 
 ```text
-WHATSAPP_INVITE_CODE=<code posted in the group>
+WHATSAPP_PASSWORD=<password posted in the group, preferred user-facing name>
+WHATSAPP_INVITE_CODE=<legacy env name; still supported if WHATSAPP_PASSWORD is unset>
 WHATSAPP_VERIFY_TOKEN=<random string pasted into Meta webhook setup>
 WHATSAPP_ACCESS_TOKEN=<Meta WhatsApp Cloud API access token>
 WHATSAPP_PHONE_NUMBER_ID=<Meta WhatsApp phone number ID>
@@ -222,9 +265,14 @@ Manage local access data:
 
 ```powershell
 python scripts\manage_whatsapp_access.py list --root .
+python scripts\manage_whatsapp_access.py summary --root .
+python scripts\manage_whatsapp_access.py blocked --root .
+python scripts\manage_whatsapp_access.py feedback --root . --limit 25
+python scripts\manage_whatsapp_access.py failures --root . --limit 25
 python scripts\manage_whatsapp_access.py approve --root . --phone 15551234567 --name "Student Name"
 python scripts\manage_whatsapp_access.py block --root . --phone 15551234567 --notes "Removed from group"
 python scripts\manage_whatsapp_access.py revoke --root . --phone 15551234567
+python scripts\manage_whatsapp_access.py remove --root . --phone 15551234567
 ```
 
 ## WhatsApp Webhook
@@ -242,7 +290,7 @@ TWILIO_AUTH_TOKEN=<from Twilio Console>
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 TWILIO_VALIDATE_SIGNATURE=true
 TWILIO_WEBHOOK_URL=https://schwarzmanqna.onrender.com/webhooks/twilio/whatsapp
-WHATSAPP_INVITE_CODE=<code students send after joining the sandbox>
+WHATSAPP_PASSWORD=<password students send after joining the sandbox>
 ```
 
 In Twilio's WhatsApp Sandbox settings, set:
@@ -257,7 +305,7 @@ POST
 
 To test, join your Twilio Sandbox from your personal WhatsApp by sending the
 `join ...` message Twilio shows in the Sandbox screen. Then send your
-`WHATSAPP_INVITE_CODE`. Once approved, send a resource question.
+`WHATSAPP_PASSWORD`. Once approved, send a resource question.
 
 Twilio webhook signature validation is enabled by default. Keep
 `TWILIO_WEBHOOK_URL` exactly equal to the URL configured in Twilio so signature
@@ -275,12 +323,14 @@ Verify token: the exact value of WHATSAPP_VERIFY_TOKEN
 
 Subscribe to WhatsApp message webhooks. Incoming DMs follow this flow:
 
-1. Unknown users are asked for the invite code.
-2. A correct invite code approves and stores their WhatsApp identity.
-3. Approved users can ask questions.
-4. The bot sends a quick acknowledgement, calls the Q&A agent, then sends the
+1. Unknown users are asked for the group password.
+2. A correct password approves and stores their WhatsApp identity.
+3. Approved users can ask questions, send `/help`, or send `/feedback <text>`.
+4. Failed, not-found, out-of-scope, and feedback messages are logged in the
+   private access store for admin review.
+5. The bot sends a quick acknowledgement, calls the Q&A agent, then sends the
    final cited answer.
-5. Blocked users are denied even if they enrolled earlier.
+6. Blocked users are denied even if they enrolled earlier.
 
 ## Phase 5: Online Backend
 

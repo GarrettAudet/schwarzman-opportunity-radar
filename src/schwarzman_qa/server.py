@@ -36,6 +36,25 @@ MAX_BODY_BYTES = 131_072
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 API_TOKEN_ENV = "SCHWARZMAN_API_TOKEN"
+FAILED_RESPONSE_TYPES = {"not_found", "out_of_scope", "safety_refusal", "agent_error", "server_error"}
+HELP_TEXT = (
+    "I answer questions from available Schwarzman/Tsinghua student resources, "
+    "including Blackboard, Rencai, and reviewed transcript materials.\n\n"
+    "Try questions about visas, packing, arrival logistics, transcripts, "
+    "internship annotation, or career resources.\n\n"
+    "Use /feedback followed by any proposed additions or fixes you'd like to "
+    "suggest for this chatbot."
+)
+PASSWORD_PROMPT = (
+    f"{HELP_TEXT}\n\n"
+    "Please send the group password before asking questions."
+)
+APPROVED_PROMPT = (
+    "You're approved.\n\n"
+    f"{HELP_TEXT}"
+)
+FEEDBACK_EMPTY_PROMPT = "Send feedback like: /feedback add more details about arrival transportation."
+FEEDBACK_RECEIVED_PROMPT = "Thanks - I saved that feedback for review."
 
 
 @dataclass
@@ -111,6 +130,28 @@ def external_request_url(headers: Any, path: str) -> str:
     proto = headers.get("X-Forwarded-Proto", "https").split(",", 1)[0].strip() or "https"
     host = headers.get("X-Forwarded-Host") or headers.get("Host", "")
     return f"{proto}://{host}{path}"
+
+
+def is_help_request(text: str) -> bool:
+    return text.strip().lower() in {"/help", "help", "/start", "start"}
+
+
+def parse_feedback(text: str) -> str | None:
+    stripped = text.strip()
+    lowered = stripped.lower()
+    if lowered == "/feedback":
+        return ""
+    if lowered.startswith("/feedback "):
+        return stripped[len("/feedback ") :].strip()
+    return None
+
+
+def top_retrieval_source(response: dict[str, Any]) -> tuple[float, str]:
+    sources = response.get("retrieval", {}).get("sources", [])
+    if not sources:
+        return 0.0, ""
+    first = sources[0]
+    return float(first.get("score", 0) or 0), str(first.get("citation_ref", "") or first.get("source_file", ""))
 
 
 def default_index_path(root: Path) -> Path:
@@ -418,7 +459,7 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            invite_code = os.environ.get("WHATSAPP_INVITE_CODE", "").strip()
+            invite_code = access.invite_code
             if invite_code and secrets.compare_digest(text, invite_code):
                 invite_decision = access.redeem_invite(
                     text,
@@ -427,26 +468,57 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                     profile_name=message.profile_name,
                 )
                 if invite_decision.allowed:
+                    access.record_event(
+                        "approved",
+                        wa_id=message.wa_id,
+                        phone_number=message.phone_number,
+                        profile_name=message.profile_name,
+                        metadata={"source": "password"},
+                    )
                     send_twilio_text(
                         message.from_address,
-                        "You're approved. Ask me a question about the reviewed Schwarzman student resources.",
+                        APPROVED_PROMPT,
                         from_address=message.to_address,
                     )
                 else:
                     send_twilio_text(
                         message.from_address,
-                        "That invite code was not accepted. Please use the code posted in the student group.",
+                        "That password was not accepted. Please use the password posted in the student group.",
                         from_address=message.to_address,
                     )
                 return
 
             if not decision.allowed:
-                access.record_seen(message.wa_id, message.phone_number, profile_name=message.profile_name)
+                access.record_event(
+                    "password_prompt",
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                    metadata={"reason": decision.reason},
+                )
                 send_twilio_text(
                     message.from_address,
-                    "I don't have this WhatsApp number approved yet. Please send the invite code posted in the student group.",
+                    PASSWORD_PROMPT,
                     from_address=message.to_address,
                 )
+                return
+
+            if is_help_request(text):
+                send_twilio_text(message.from_address, HELP_TEXT, from_address=message.to_address)
+                return
+
+            feedback = parse_feedback(text)
+            if feedback is not None:
+                if not feedback:
+                    send_twilio_text(message.from_address, FEEDBACK_EMPTY_PROMPT, from_address=message.to_address)
+                    return
+                access.record_feedback(
+                    feedback,
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                )
+                send_twilio_text(message.from_address, FEEDBACK_RECEIVED_PROMPT, from_address=message.to_address)
                 return
 
             if not text or message.num_media:
@@ -468,6 +540,18 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             response = make_response(result, elapsed_ms)
             answer = response.get("answer") or NOT_FOUND_TEXT
+            response_type = str(response.get("response_type", ""))
+            if response_type in FAILED_RESPONSE_TYPES:
+                top_score, top_source = top_retrieval_source(response)
+                access.record_failed_question(
+                    text,
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                    response_type=response_type,
+                    top_score=top_score,
+                    top_source=top_source,
+                )
             send_twilio_text(message.from_address, format_chat_answer(str(answer)), from_address=message.to_address)
         except Exception as exc:
             print(f"Twilio WhatsApp message handling failed: {type(exc).__name__}", flush=True)
@@ -485,7 +569,7 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
 
-            invite_code = os.environ.get("WHATSAPP_INVITE_CODE", "").strip()
+            invite_code = access.invite_code
             if invite_code and secrets.compare_digest(text, invite_code):
                 invite_decision = access.redeem_invite(
                     text,
@@ -494,26 +578,57 @@ class QaRequestHandler(BaseHTTPRequestHandler):
                     profile_name=message.profile_name,
                 )
                 if invite_decision.allowed:
+                    access.record_event(
+                        "approved",
+                        wa_id=message.wa_id,
+                        phone_number=message.phone_number,
+                        profile_name=message.profile_name,
+                        metadata={"source": "password"},
+                    )
                     send_text(
                         message.wa_id,
-                        "You're approved. Ask me a question about the reviewed Schwarzman student resources.",
+                        APPROVED_PROMPT,
                         reply_to_message_id=message.message_id,
                     )
                 else:
                     send_text(
                         message.wa_id,
-                        "That invite code was not accepted. Please use the code posted in the student group.",
+                        "That password was not accepted. Please use the password posted in the student group.",
                         reply_to_message_id=message.message_id,
                     )
                 return
 
             if not decision.allowed:
-                access.record_seen(message.wa_id, message.phone_number, profile_name=message.profile_name)
+                access.record_event(
+                    "password_prompt",
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                    metadata={"reason": decision.reason},
+                )
                 send_text(
                     message.wa_id,
-                    "I don't have this WhatsApp number approved yet. Please DM the invite code posted in the student group.",
+                    PASSWORD_PROMPT,
                     reply_to_message_id=message.message_id,
                 )
+                return
+
+            if is_help_request(text):
+                send_text(message.wa_id, HELP_TEXT, reply_to_message_id=message.message_id)
+                return
+
+            feedback = parse_feedback(text)
+            if feedback is not None:
+                if not feedback:
+                    send_text(message.wa_id, FEEDBACK_EMPTY_PROMPT, reply_to_message_id=message.message_id)
+                    return
+                access.record_feedback(
+                    feedback,
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                )
+                send_text(message.wa_id, FEEDBACK_RECEIVED_PROMPT, reply_to_message_id=message.message_id)
                 return
 
             if message.message_type != "text" or not text:
@@ -535,6 +650,18 @@ class QaRequestHandler(BaseHTTPRequestHandler):
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             response = make_response(result, elapsed_ms)
             answer = response.get("answer") or NOT_FOUND_TEXT
+            response_type = str(response.get("response_type", ""))
+            if response_type in FAILED_RESPONSE_TYPES:
+                top_score, top_source = top_retrieval_source(response)
+                access.record_failed_question(
+                    text,
+                    wa_id=message.wa_id,
+                    phone_number=message.phone_number,
+                    profile_name=message.profile_name,
+                    response_type=response_type,
+                    top_score=top_score,
+                    top_source=top_source,
+                )
             send_text(message.wa_id, format_chat_answer(str(answer)))
         except Exception as exc:
             print(f"WhatsApp message handling failed: {type(exc).__name__}", flush=True)
