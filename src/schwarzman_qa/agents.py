@@ -27,7 +27,7 @@ EXTRACTIVE_FALLBACK_THRESHOLD = 15.0
 EventCallback = Callable[[str, dict[str, Any]], None]
 CAPABILITY_BODY = (
     "I can answer questions from available Schwarzman/Tsinghua student resources, "
-    "including Blackboard, Rencai, and reviewed transcript materials.\n\n"
+    "including Blackboard and Rencai.\n\n"
     "Good topics include visas and residence permits, packing, arrival logistics, "
     "WeChat/Alipay setup, transcripts and verification letters, internship annotation, "
     "career resources, job-search materials, interview prep, and pre-program requirements.\n\n"
@@ -96,6 +96,16 @@ RESOURCE_SCOPE_TERMS = {
     "spouse",
     "staying in china",
     "stay permit",
+    "action item",
+    "action items",
+    "checklist",
+    "task",
+    "tasks",
+    "to do",
+    "to-do",
+    "todo",
+    "to-do item",
+    "to-do items",
     "transcript",
     "transcripts",
     "transportation",
@@ -295,6 +305,16 @@ def is_resource_scope_question(question: str, _results: list[dict[str, Any]], _t
     return False
 
 
+def retrieval_query_for(question: str) -> str:
+    lowered = question.lower()
+    aliases: list[str] = []
+    if re.search(r"\btodo\b|\bto do\b", lowered) and "to-do" not in lowered:
+        aliases.append("to-do")
+    if not aliases:
+        return question
+    return f"{question} {' '.join(aliases)}"
+
+
 def clarification_answer(question: str, results: list[dict[str, Any]]) -> str | None:
     lowered = question.lower()
     clarification_options: list[str] = []
@@ -393,7 +413,7 @@ def answer_with_agents(
 
     emit("retrieval_started")
     index = index_data if index_data is not None else load_index(root, index_path)
-    results = retrieve(index, guard.normalized_text, top_k=top_k)
+    results = retrieve(index, retrieval_query_for(guard.normalized_text), top_k=top_k)
     top_score = results[0]["score"] if results else 0.0
     emit(
         "retrieval_done",
