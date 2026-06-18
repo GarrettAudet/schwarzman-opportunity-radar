@@ -54,17 +54,21 @@ Recommended update workflow:
 
 2. Add new student-facing files to `data/blackboard`,
    `data/rencai/raw`, or `data/transcripts/raw`.
-3. Rebuild and sync the local review sheet:
+3. Run the intake pipeline:
 
    ```powershell
-   python scripts\build_corpus_qa.py --root .
-   python scripts\sync_corpus_review.py --root .
+   python scripts\ingest_corpus_updates.py --root .
    ```
 
-4. Review `data/corpus/review/corpus-review.csv`. Set new trusted rows to
-   `include` or `summarize_only`; leave questionable files as `review`,
-   `needs_fix`, or `drop`.
-5. Audit extraction quality before indexing:
+   This rebuilds extracted text and chunks, detects new or changed source
+   files, updates `data/corpus/review/corpus-review.csv`, runs the corpus
+   quality audit, and writes a timestamped intake report under
+   `data/corpus/reports/`.
+4. Review the newest `corpus-intake-*.md` report and
+   `data/corpus/review/corpus-review.csv`. Set trusted rows to `include` or
+   `summarize_only`; leave questionable files as `review`, `needs_fix`, or
+   `drop`.
+5. If you want to rerun only the quality audit:
 
    ```powershell
    python scripts\audit_corpus_quality.py --root .
@@ -124,6 +128,23 @@ that may need manual attention. It writes generated outputs under:
 - `data/corpus/text` - extracted text grouped by source.
 - `data/corpus/chunks` - timestamped chunk JSONL files for search/RAG.
 - `data/corpus/reports` - timestamped QA reports and file summaries.
+
+`ingest_corpus_updates.py` is the preferred entry point for new documents. It
+runs the build step, compares the newest extraction report against the review
+CSV, detects new files, detects existing files whose hash changed, refreshes
+their extraction metadata, and writes `corpus-intake-*.csv` plus
+`corpus-intake-*.md`. Healthy new files default to `review`; files with empty
+text, unsupported formats, OCR needs, weak extraction, or no chunks default to
+`needs_fix`. Changed files are reset to review by default so previously
+approved content does not silently enter the deployed index after it changes.
+
+Useful intake variants:
+
+```powershell
+python scripts\ingest_corpus_updates.py --root . --ocr
+python scripts\ingest_corpus_updates.py --root . --dry-run
+python scripts\ingest_corpus_updates.py --root . --build-index --run-retrieval-eval --run-whatsapp-smoke
+```
 
 `audit_corpus_quality.py` reads the reviewed corpus sheet and scores each file
 for RAG readiness. It is designed to catch problems that make answers bad even
