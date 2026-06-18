@@ -71,15 +71,17 @@ Recommended update workflow:
    python scripts\ask_corpus.py --root . --retrieval-only "What documents do I need for the X1 visa?"
    ```
 
-6. Copy the latest index to the deployment filename:
+6. Upload the latest generated index to the private index repo:
 
    ```powershell
-   Copy-Item (Get-ChildItem data\corpus\index\local-index-*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName deploy\index\local-index.json -Force
+   $env:GITHUB_INDEX_UPLOAD_TOKEN = "<fine-grained GitHub token with Contents read/write access>"
+   python scripts\upload_index_to_github.py --root .
    ```
 
-7. Upload `deploy/index/local-index.json` to the private
+   The upload script copies the latest `data/corpus/index/local-index-*.json`
+   to `deploy/index/local-index.json`, then uploads it to the private
    `GarrettAudet/SchwarzmanQnA-Index` repo as `local-index.json`.
-8. Redeploy or restart Render so the service reloads the updated index.
+7. Redeploy or restart Render so the service reloads the updated index.
 
 The raw source files, extracted text, chunks, review CSV, and deploy index are
 ignored in this app repo. Keep them local or in private storage; do not push
@@ -118,12 +120,20 @@ python scripts\build_local_index.py --root .
 ```
 
 The index builder uses the latest chunk file plus your review CSV decisions and
-writes a timestamped index under `data/corpus/index`. For deployment, copy the
-latest generated index to the fixed Render filename:
+writes a timestamped index under `data/corpus/index`. For deployment, upload
+the latest generated index to the private index repo:
 
 ```powershell
-Copy-Item (Get-ChildItem data\corpus\index\local-index-*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName deploy\index\local-index.json -Force
+$env:GITHUB_INDEX_UPLOAD_TOKEN = "<fine-grained GitHub token with Contents read/write access>"
+python scripts\upload_index_to_github.py --root .
 ```
+
+By default, `upload_index_to_github.py` uploads to
+`GarrettAudet/SchwarzmanQnA-Index` as `local-index.json` on `main`. It also
+refreshes `deploy/index/local-index.json` from the newest timestamped index.
+You can override the destination with `GITHUB_INDEX_REPO`, `GITHUB_INDEX_PATH`,
+`GITHUB_INDEX_REF`, or CLI flags. The script does not load `.env`; set the
+token in your shell when you run the upload.
 
 User-facing citations are source-relative document paths, such as
 `blackboard/OBTAINING YOUR X1 STUDENT VISA 2026.pdf` or
