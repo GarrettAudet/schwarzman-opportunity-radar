@@ -1,5 +1,0 @@
-pypdf
-python-docx
-openpyxl
-pillow
-pytesseract

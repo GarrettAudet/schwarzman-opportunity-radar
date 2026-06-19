@@ -1,146 +1,109 @@
-# Schwarzman Q&A
+﻿# OpportunityRadar
 
-Schwarzman Q&A is a small retrieval-augmented WhatsApp assistant for answering
-student questions from reviewed Schwarzman/Tsinghua resources. It is designed
-for a limited student group, not as a public general-purpose chatbot.
+OpportunityRadar sends a weekly WhatsApp digest of high-signal jobs for Schwarzman Scholars. It focuses on roles in Beijing, Dubai, Shenzhen, New York, and San Francisco, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
 
-The public repo contains the application code, crawler tooling, eval harness,
-and deployment configuration. It intentionally does not contain the reviewed
-student-resource corpus, raw downloaded files, extracted text, WhatsApp user
-lists, or production secrets.
+The project is intentionally built around adapters and durable state so one broken career page does not break the whole weekly digest.
 
 ## What It Does
 
-- Inventories authenticated Blackboard/Rencai resource pages through a local
-  Chrome extension.
-- Builds a reviewed local corpus from Blackboard files, Rencai files, and video
-  transcripts.
-- Converts approved files into searchable chunks with source metadata.
-- Answers scoped Schwarzman/Tsinghua questions with citations.
-- Supports resource-catalog questions such as “what can this tool answer?” and
-  “what videos do we have?”
-- Handles follow-up questions with short per-user conversation memory.
-- Logs access, feedback, failed questions, answered questions, latency, and
-  retrieval sources for operational review.
-- Exposes a hosted HTTP backend and WhatsApp webhook for Twilio or Meta
-  WhatsApp.
+- Pulls jobs from structured ATS/feed sources first: Greenhouse, Lever, Ashby, RSS, and a configurable HTML fallback.
+- Normalizes target-city aliases including NYC, New York City, SF, Shenzhen, and Shenzen.
+- Dedupe jobs across sources and suppresses jobs already sent in previous weeks.
+- Uses `docs/opportunity-criteria.md` to guide LLM judgment for what counts as a cool Scholar-relevant role.
+- Sends a WhatsApp-safe weekly digest through Twilio.
+- Supports approved Twilio WhatsApp templates for proactive notifications.
+- Exposes protected preview and run endpoints for manual checks.
+- Stores durable state in local JSON for development or a private GitHub repo in production.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A["Student WhatsApp DM"] --> B["Webhook on Render"]
-    B --> C["Access control"]
-    C --> D["Deterministic router"]
-    D --> E["Resource catalog / help"]
-    D --> F["RAG retrieval"]
-    F --> G["Answer model"]
-    G --> H["Reviewer / guardrail"]
-    H --> I["Clean WhatsApp response"]
-    F --> J["Citations"]
-    C --> K["Private access log"]
-    L["Local reviewed corpus"] --> M["Private index repo"]
-    M --> B
+    A[Render Cron] --> B[OpportunityRadar Pipeline]
+    C[Protected API] --> B
+    B --> D[Source Adapters]
+    D --> E[Normalized Jobs]
+    E --> F[City Filter + Dedupe]
+    F --> G[LLM Ranker]
+    G --> H[WhatsApp Digest]
+    H --> I[Twilio Sender]
+    B <--> J[Private JSON State]
+    K[Criteria Markdown] --> G
 ```
-
-The app uses a deterministic router before the LLM. Simple bot/admin commands,
-resource catalog questions, safety refusals, and obvious out-of-scope prompts
-are handled without asking the model to guess. In-scope student questions go
-through retrieval, answer drafting, review/guardrails, and final formatting.
-
-## Repository Layout
-
-```text
-src/schwarzman_qa/       backend, retrieval, agents, policy, WhatsApp access
-scripts/                 corpus build, eval, upload, backend, admin CLIs
-docs/                    policy and design notes
-data/evals/              sanitized eval cases
-data/blackboard/         local-only source files, ignored by git
-data/rencai/raw/         local-only source files, ignored by git
-data/transcripts/raw/    local-only transcript files, ignored by git
-data/corpus/             generated local corpus artifacts, ignored by git
-deploy/                  deployment helpers; generated index is ignored
-```
-
-## Safety Model
-
-- The corpus is reviewed before indexing.
-- Answers must use retrieved source material and source-relative citations.
-- The bot should say it does not know when the available materials do not answer
-  the question.
-- Prompt-injection attempts are classified before retrieval and reviewed before
-  output.
-- User-provided text and retrieved document text are treated as untrusted data.
-- WhatsApp access is limited by password enrollment, allow/block controls, and
-  optional admin-only commands.
 
 ## Local Development
 
-Install backend dependencies:
+Install dependencies:
 
 ```powershell
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-backend.txt
 ```
 
-Build a local index after adding reviewed local resources:
+Run a fixture-backed dry run without spending model tokens:
 
 ```powershell
-python scripts\ingest_corpus_updates.py --root . --build-index
+python scripts\run_weekly_digest.py --root . --sources tests\fixtures\sources.fixture.json --deterministic-fallback --include-seen
 ```
 
-Run the backend locally:
+Run with real configured sources and OpenRouter ranking:
+
+```powershell
+python scripts\run_weekly_digest.py --root . --dry-run
+```
+
+Send to configured recipients:
+
+```powershell
+python scripts\run_weekly_digest.py --root . --send
+```
+
+Run the protected API locally:
 
 ```powershell
 python scripts\serve_backend.py --root . --host 127.0.0.1 --port 8765
 ```
 
-Ask through the local backend:
+Preview through HTTP:
 
 ```powershell
-python scripts\query_backend.py --url http://127.0.0.1:8765/ask "What documents do I need for the X1 visa?"
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/digest/preview -Headers @{ Authorization = "Bearer $env:OPPORTUNITY_API_TOKEN" } -Body '{}' -ContentType 'application/json'
 ```
 
-## Production Readiness
+## Configuration
 
-Before deploying code or an updated index, run:
+Copy `data/config/sources.example.json` to `data/config/sources.local.json` for local private source config. Production can read `sources.json` from a private GitHub repo using `GITHUB_SOURCES_PATH`.
+
+Important env vars:
+
+```text
+OPPORTUNITY_API_TOKEN=<optional bearer token for API endpoints>
+OPPORTUNITY_RECIPIENTS=whatsapp:+15551234567,whatsapp:+15557654321
+OPPORTUNITY_TIMEZONE=America/Edmonton
+OPPORTUNITY_SEND_DOW=MON
+OPPORTUNITY_SEND_HOUR=9
+OPPORTUNITY_MAX_JOBS=10
+OPENROUTER_API_KEY=<key>
+OPENROUTER_RANK_MODEL=openai/gpt-4.1-mini
+TWILIO_ACCOUNT_SID=<sid>
+TWILIO_AUTH_TOKEN=<token>
+TWILIO_WHATSAPP_FROM=whatsapp:+15551234567
+TWILIO_WHATSAPP_CONTENT_SID=<optional approved template sid>
+GITHUB_STATE_REPO=<owner/private-state-repo>
+GITHUB_STATE_TOKEN=<fine-grained contents read/write token>
+GITHUB_STATE_PATH=opportunity-state.json
+GITHUB_SOURCES_PATH=sources.json
+```
+
+## Production Gate
 
 ```powershell
 python scripts\run_production_gate.py --root .
 ```
 
-The gate compiles Python files, audits corpus health, runs retrieval evals, runs
-WhatsApp-style behavior smoke tests, and runs multi-turn conversation tests. It
-writes a timestamped report under `data/evals/runs/`.
-
-For fast iteration:
-
-```powershell
-python scripts\run_production_gate.py --root . --quick
-```
+The gate compiles Python, runs the unit/integration tests, and performs a fixture-backed digest smoke test.
 
 ## Deployment
 
-The hosted service is a Render web service. The reviewed index is stored
-separately in a private repo so the public app repo can remain code-only.
+`render.yaml` defines a web service and a cron service. The cron service runs hourly on Mondays in UTC and passes `--respect-schedule`; the app only sends during the configured local send hour, avoiding daylight-saving drift.
 
-At runtime, the service loads:
-
-- OpenRouter model credentials from environment variables.
-- A private retrieval index from the private index repo.
-- Optional WhatsApp access state from the same private repo.
-
-The private index repo README contains the operator commands for corpus updates,
-index upload, Render env vars, and WhatsApp admin commands.
-
-## Documentation
-
-- [Answering policy](docs/answering-policy.md)
-- [WhatsApp Q&A design](docs/whatsapp-qa-agent-design.md)
-- [Backend and WhatsApp setup notes](docs/backend-and-whatsapp.md)
-- [Private index repo README template](docs/private-index-repo-readme.md)
-
-## Important Note
-
-This project is meant to help students navigate already-available program
-resources. It is not a substitute for official Schwarzman Scholars, Tsinghua,
-immigration, housing, medical, or legal guidance.
+See `docs/private-state-repo-readme.md` for the private state/config repo layout.

@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "defaults": {
+    "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco"],
+    "allow_global_remote": false
+  },
+  "sources": [
+    {
+      "id": "fixture-scholar",
+      "name": "Fixture Scholar Jobs",
+      "adapter": "fixture",
+      "enabled": true,
+      "company": "Fixture",
+      "jobs": [
+        {
+          "external_id": "openai-sf-1",
+          "title": "Strategy and Operations Lead, Frontier AI",
+          "company": "OpenAI",
+          "location": "San Francisco, CA",
+          "canonical_url": "https://example.com/openai-sf",
+          "apply_url": "https://example.com/openai-sf/apply",
+          "department": "Strategy",
+          "employment_type": "Full-time",
+          "description_text": "Work on frontier artificial intelligence strategy with senior leaders and global policy stakeholders."
+        },
+        {
+          "external_id": "policy-bj-1",
+          "title": "China Public Policy Fellowship",
+          "company": "Global Policy Lab",
+          "location": "Beijing",
+          "canonical_url": "https://example.com/policy-bj",
+          "description_text": "A public policy fellowship for globally minded early-career leaders."
+        },
+        {
+          "external_id": "shenzen-1",
+          "title": "Venture Analyst",
+          "company": "Frontier Ventures",
+          "location": "Shenzen",
+          "canonical_url": "https://example.com/shenzen-vc",
+          "description_text": "Invest in frontier startups across hardware, climate, and AI."
+        },
+        {
+          "external_id": "london-1",
+          "title": "Generic Analyst",
+          "company": "Ordinary Co",
+          "location": "London",
+          "canonical_url": "https://example.com/london",
+          "description_text": "Generic local operations role."
+        }
+      ]
+    }
+  ]
+}

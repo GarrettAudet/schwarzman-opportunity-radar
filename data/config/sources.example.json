@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "defaults": {
+    "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco"],
+    "allow_global_remote": false
+  },
+  "sources": [
+    {
+      "id": "example-greenhouse",
+      "name": "Example Greenhouse Board",
+      "adapter": "greenhouse",
+      "enabled": false,
+      "company": "ExampleCo",
+      "url": "https://boards-api.greenhouse.io/v1/boards/example/jobs?content=true",
+      "cities": ["New York", "San Francisco"],
+      "include_keywords": [],
+      "exclude_keywords": ["commission only"]
+    },
+    {
+      "id": "example-lever",
+      "name": "Example Lever Board",
+      "adapter": "lever",
+      "enabled": false,
+      "company": "Example Startup",
+      "url": "https://api.lever.co/v0/postings/example?mode=json",
+      "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco"]
+    }
+  ]
+}

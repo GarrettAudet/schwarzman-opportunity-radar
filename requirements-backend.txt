@@ -1,2 +1,5 @@
-# The backend intentionally uses only Python standard library modules.
-# This file exists so hosted Python platforms have a stable build command.
+﻿# Runtime dependencies. The core code sticks mostly to Python stdlib, while these
+# packages are available for stronger source adapters as the board list expands.
+httpx>=0.27
+beautifulsoup4>=4.12
+python-dateutil>=2.9
