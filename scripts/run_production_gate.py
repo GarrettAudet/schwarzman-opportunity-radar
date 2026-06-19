@@ -98,6 +98,19 @@ def main() -> int:
         GateStep("python_compile", [py, "-m", "py_compile", *python_files(root)]),
         GateStep("unit_tests", [py, "-m", "unittest", "discover", "-s", "tests"]),
         GateStep(
+            "fixture_discovery_smoke",
+            [
+                py,
+                "scripts\\run_discovery.py",
+                "--root",
+                ".",
+                "--sources",
+                "tests\\fixtures\\sources.fixture.json",
+                "--deterministic-fallback",
+                "--json",
+            ],
+        ),
+        GateStep(
             "fixture_digest_smoke",
             [
                 py,

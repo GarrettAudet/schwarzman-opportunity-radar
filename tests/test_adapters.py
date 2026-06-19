@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from opportunity_radar.adapters import fetch_source, parse_greenhouse, parse_lever
+from opportunity_radar.adapters import fetch_source, parse_greenhouse, parse_lever, strip_html
 from opportunity_radar.cities import canonical_city_set
 from opportunity_radar.fetch import FetchResponse
 
@@ -61,6 +61,10 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(lever[0]["location"], "Dubai")
         self.assertEqual(lever[0]["department"], "Investing")
 
+    def test_strip_html_handles_escaped_tags(self) -> None:
+        text = strip_html("&lt;div&gt;&lt;h2&gt;About&lt;/h2&gt;&lt;p&gt;Hello&amp;nbsp;world&lt;/p&gt;&lt;/div&gt;")
+        self.assertEqual(text, "About Hello world")
+        self.assertNotIn("<div>", text)
     def test_fetcher_receives_conditional_headers(self) -> None:
         calls = []
 

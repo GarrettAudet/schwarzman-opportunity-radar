@@ -7,8 +7,10 @@ The project is intentionally built around adapters and durable state so one brok
 ## What It Does
 
 - Pulls jobs from structured ATS/feed sources first: Greenhouse, Lever, Ashby, RSS, and a configurable HTML fallback.
+- For Greenhouse, fetches the board index first, city-filters the lightweight postings, then detail-fetches only promising target-city roles.
 - Normalizes target-city aliases including NYC, New York City, SF, Shenzhen, Shenzen, and Sydney.
-- Dedupe jobs across sources and suppresses jobs already sent in previous weeks.
+- Applies deterministic hard filters before the LLM, including the 0-5 years-of-experience requirement.
+- Stores daily evaluated opportunities in durable JSON state, then sends the weekly digest from unsent included jobs.
 - Uses `docs/opportunity-criteria.md` to guide LLM judgment for what counts as a cool Scholar-relevant role.
 - Sends a WhatsApp-safe weekly digest through Twilio.
 - Supports approved Twilio WhatsApp templates for proactive notifications.
@@ -19,16 +21,17 @@ The project is intentionally built around adapters and durable state so one brok
 
 ```mermaid
 flowchart LR
-    A[Render Cron] --> B[OpportunityRadar Pipeline]
-    C[Protected API] --> B
-    B --> D[Source Adapters]
-    D --> E[Normalized Jobs]
-    E --> F[City Filter + Dedupe]
-    F --> G[LLM Ranker]
-    G --> H[WhatsApp Digest]
-    H --> I[Twilio Sender]
-    B <--> J[Private JSON State]
-    K[Criteria Markdown] --> G
+    A[Daily Render Cron] --> B[Source Discovery]
+    B --> C[Structured Adapters]
+    C --> D[City + Hard Filters]
+    D --> E[LLM Ranker]
+    E --> F[Evaluated Jobs in State]
+    G[Weekly Render Cron] --> H[Digest From Unsent Winners]
+    H --> I[Twilio WhatsApp Sender]
+    J[Protected API] --> H
+    K[Criteria Markdown] --> E
+    F <--> L[Private JSON State]
+    H <--> L
 ```
 
 ## Local Development
@@ -39,22 +42,41 @@ Install dependencies:
 python -m pip install -r requirements-backend.txt
 ```
 
-Run a fixture-backed dry run without spending model tokens:
+Run a fixture-backed weekly dry run without spending model tokens:
 
 ```powershell
 python scripts\run_weekly_digest.py --root . --sources tests\fixtures\sources.fixture.json --deterministic-fallback --include-seen
 ```
 
-Run with real configured sources and OpenRouter ranking:
+Run daily discovery against fixtures:
+
+```powershell
+python scripts\run_discovery.py --root . --sources tests\fixtures\sources.fixture.json --deterministic-fallback --json
+```
+
+Try the Greenhouse discovery flow against Anthropic without writing state:
+
+```powershell
+python scripts\run_discovery.py --root . --sources data\config\sources.greenhouse-smoke.json --deterministic-fallback --json
+```
+
+Write evaluated jobs to local state, then preview the weekly digest from that state:
+
+```powershell
+python scripts\run_discovery.py --root . --sources data\config\sources.greenhouse-smoke.json --deterministic-fallback --write
+python scripts\run_weekly_digest.py --root . --from-state
+```
+
+Run with real configured sources and OpenRouter ranking using the legacy live weekly path:
 
 ```powershell
 python scripts\run_weekly_digest.py --root . --dry-run
 ```
 
-Send to configured recipients:
+Send to configured recipients from evaluated state:
 
 ```powershell
-python scripts\run_weekly_digest.py --root . --send
+python scripts\run_weekly_digest.py --root . --send --from-state
 ```
 
 Run the protected API locally:
@@ -66,7 +88,7 @@ python scripts\serve_backend.py --root . --host 127.0.0.1 --port 8765
 Preview through HTTP:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/digest/preview -Headers @{ Authorization = "Bearer $env:OPPORTUNITY_API_TOKEN" } -Body '{}' -ContentType 'application/json'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/digest/preview -Headers @{ Authorization = "Bearer $env:OPPORTUNITY_API_TOKEN" } -Body '{"from_state":true}' -ContentType 'application/json'
 ```
 
 ## Configuration
@@ -101,10 +123,13 @@ GITHUB_SOURCES_PATH=sources.json
 python scripts\run_production_gate.py --root .
 ```
 
-The gate compiles Python, runs the unit/integration tests, and performs a fixture-backed digest smoke test.
+The gate compiles Python, runs the unit/integration tests, performs a fixture-backed discovery smoke test, and performs a fixture-backed digest smoke test.
 
 ## Deployment
 
-`render.yaml` defines a web service and a cron service. The cron service runs hourly on Mondays in UTC and passes `--respect-schedule`; the app only sends during the configured local send hour, avoiding daylight-saving drift.
+`render.yaml` defines a web service plus two cron services:
+
+- `opportunity-radar-discovery` runs daily and writes evaluated jobs to durable state.
+- `opportunity-radar-weekly` runs hourly on Mondays in UTC with `--respect-schedule --from-state`; the app only sends during the configured local send hour, avoiding daylight-saving drift.
 
 See `docs/private-state-repo-readme.md` for the private state/config repo layout.

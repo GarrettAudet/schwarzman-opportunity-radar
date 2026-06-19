@@ -105,6 +105,7 @@ class OpportunityRequestHandler(BaseHTTPRequestHandler):
                 sources_path=str(request.get("sources_path", "")),
                 deterministic_fallback=request.get("deterministic_fallback"),
                 include_seen=bool(request.get("include_seen", False)),
+                from_state=bool(request.get("from_state", False)),
             )
             status, body = json_bytes({"ok": not any(error.startswith("ranker_failed") for error in result.errors), "run": result.to_dict()})
         except Exception as exc:

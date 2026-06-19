@@ -12,7 +12,14 @@ MAX_REQUIRED_YEARS = 5
 
 def contains_any(text: str, needles: list[str]) -> bool:
     lowered = text.lower()
-    return any(needle.lower() in lowered for needle in needles if needle.strip())
+    for needle in needles:
+        normalized = re.sub(r"\s+", " ", needle.lower()).strip()
+        if not normalized:
+            continue
+        pattern = r"(?<![a-z0-9])" + re.escape(normalized) + r"(?![a-z0-9])"
+        if re.search(pattern, lowered):
+            return True
+    return False
 
 
 def explicit_year_requirements(text: str) -> list[tuple[int, int | None]]:
@@ -31,6 +38,20 @@ def explicit_year_requirements(text: str) -> list[tuple[int, int | None]]:
         r"(?:\s+of)?(?:\s+(?:relevant|professional|work|industry))?\s+experience"
     )
     for match in min_pattern.finditer(lowered):
+        requirements.append((int(match.group(1)), None))
+
+    experience_after_pattern = re.compile(
+        r"(?<![\d$])(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b"
+        r"(?=[^.;\n]{0,120}\bexperience\b)"
+    )
+    for match in experience_after_pattern.finditer(lowered):
+        requirements.append((int(match.group(1)), None))
+
+    experience_before_pattern = re.compile(
+        r"\bexperience\b[^.;\n]{0,80}?"
+        r"(?<![\d$])(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b"
+    )
+    for match in experience_before_pattern.finditer(lowered):
         requirements.append((int(match.group(1)), None))
     return requirements
 
@@ -53,7 +74,7 @@ def source_filter_allows(job: JobPosting, source: dict[str, Any]) -> bool:
             job.location_text,
             job.department,
             job.employment_type,
-            job.description_text[:2000],
+            job.description_text[:8000],
             " ".join(job.tags),
         ]
     )

@@ -21,6 +21,7 @@ def main() -> int:
     parser.add_argument("--sources", default="", help="Optional sources JSON path")
     parser.add_argument("--deterministic-fallback", action="store_true", help="Use deterministic ranking if OpenRouter is unavailable")
     parser.add_argument("--include-seen", action="store_true", help="Include jobs already seen in state")
+    parser.add_argument("--from-state", action="store_true", help="Build the weekly digest from daily evaluated jobs in state")
     parser.add_argument("--json", action="store_true", help="Print full JSON")
     args = parser.parse_args()
 
@@ -32,6 +33,7 @@ def main() -> int:
         sources_path=args.sources,
         deterministic_fallback=True if args.deterministic_fallback else None,
         include_seen=bool(args.include_seen),
+        from_state=bool(args.from_state),
     )
     payload = result.to_dict()
     if args.json:

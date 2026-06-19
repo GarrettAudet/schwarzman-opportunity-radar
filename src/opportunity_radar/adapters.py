@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from .cities import city_allowed_for_location, canonical_city_set
 from .fetch import FetchResponse, conditional_headers, fetch_url
@@ -19,7 +20,8 @@ FetchFn = Callable[[str], FetchResponse]
 
 
 def strip_html(value: object) -> str:
-    text = re.sub(r"<(script|style).*?</\1>", " ", str(value or ""), flags=re.I | re.S)
+    text = html.unescape(str(value or ""))
+    text = re.sub(r"<(script|style).*?</\1>", " ", text, flags=re.I | re.S)
     text = re.sub(r"<[^>]+>", " ", text)
     return clean_text(html.unescape(text), max_chars=12000)
 
@@ -98,7 +100,14 @@ def normalize_job(
 
 
 def parse_greenhouse(payload: Any, source: dict[str, Any]) -> list[dict[str, Any]]:
-    jobs = payload.get("jobs", payload) if isinstance(payload, dict) else payload
+    if isinstance(payload, dict):
+        jobs = payload.get("jobs")
+        if jobs is None and payload.get("id") is not None:
+            jobs = [payload]
+        elif jobs is None:
+            jobs = []
+    else:
+        jobs = payload
     parsed: list[dict[str, Any]] = []
     for job in jobs or []:
         if not isinstance(job, dict):
@@ -123,6 +132,73 @@ def parse_greenhouse(payload: Any, source: dict[str, Any]) -> list[dict[str, Any
             }
         )
     return parsed
+
+
+def greenhouse_board_token(source: dict[str, Any]) -> str:
+    explicit = clean_text(source.get("board_token"), max_chars=200)
+    if explicit:
+        return explicit
+    url = clean_text(source.get("url"), max_chars=1200)
+    if not url:
+        raise ValueError("greenhouse sources require board_token or url")
+    parsed = urlparse(url)
+    path = parsed.path.strip("/")
+    match = re.search(r"(?:^|/)boards/([^/]+)/jobs(?:/|$)", path)
+    if match:
+        return match.group(1)
+    parts = [part for part in path.split("/") if part]
+    if parsed.netloc.endswith("greenhouse.io") and parts:
+        return parts[0]
+    raise ValueError(f"could not derive Greenhouse board token from {url}")
+
+
+def greenhouse_index_url(source: dict[str, Any]) -> str:
+    return f"https://boards-api.greenhouse.io/v1/boards/{greenhouse_board_token(source)}/jobs"
+
+
+def greenhouse_detail_url(source: dict[str, Any], job_id: object) -> str:
+    return f"https://boards-api.greenhouse.io/v1/boards/{greenhouse_board_token(source)}/jobs/{job_id}"
+
+
+def fetch_greenhouse_index(
+    source: dict[str, Any],
+    *,
+    cache: dict[str, Any] | None = None,
+    fetcher: Callable[..., FetchResponse] = fetch_url,
+) -> tuple[list[dict[str, Any]], SourceResult, dict[str, str]]:
+    started = time.perf_counter()
+    source_id = str(source.get("id") or source.get("name") or "source").strip()
+    source_name = str(source.get("name") or source_id).strip()
+    response_headers: dict[str, str] = {}
+    try:
+        response = fetcher(greenhouse_index_url(source), headers=conditional_headers(cache or {}), timeout=int(source.get("timeout", 30)))
+        response_headers = {
+            "etag": response.headers.get("etag", ""),
+            "last_modified": response.headers.get("last-modified", ""),
+        }
+        raw_jobs = [] if response.status == 304 else parse_greenhouse(json.loads(response.body), source)
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return (
+            raw_jobs,
+            SourceResult(source_id=source_id, source_name=source_name, ok=True, fetched_count=len(raw_jobs), elapsed_ms=elapsed_ms),
+            response_headers,
+        )
+    except Exception as exc:
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return ([], SourceResult(source_id=source_id, source_name=source_name, ok=False, elapsed_ms=elapsed_ms, error=type(exc).__name__), response_headers)
+
+
+def fetch_greenhouse_detail(
+    source: dict[str, Any],
+    job_id: object,
+    *,
+    fetcher: Callable[..., FetchResponse] = fetch_url,
+) -> dict[str, Any]:
+    response = fetcher(greenhouse_detail_url(source, job_id), headers={}, timeout=int(source.get("timeout", 30)))
+    parsed = parse_greenhouse(json.loads(response.body), source)
+    if not parsed:
+        raise ValueError(f"no Greenhouse detail returned for {job_id}")
+    return parsed[0]
 
 
 def parse_lever(payload: Any, source: dict[str, Any]) -> list[dict[str, Any]]:
@@ -231,7 +307,7 @@ def parse_fixture(source: dict[str, Any]) -> list[dict[str, Any]]:
     if not fixture_path:
         return []
     path = Path(str(fixture_path))
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
     return list(payload.get("jobs", payload))
 
 
@@ -254,6 +330,8 @@ def fetch_source(
             raw_jobs = parse_fixture(source)
         else:
             url = str(source.get("url", "")).strip()
+            if not url and adapter == "greenhouse":
+                url = greenhouse_index_url(source)
             if not url:
                 raise ValueError("source url is required")
             response = fetcher(url, headers=conditional_headers(cache or {}), timeout=int(source.get("timeout", 30)))

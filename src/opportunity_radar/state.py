@@ -28,7 +28,9 @@ def empty_state() -> dict[str, Any]:
         "version": 1,
         "updated_at": now_iso(),
         "seen_jobs": {},
+        "sent_jobs": {},
         "sent_weeks": {},
+        "evaluated_jobs": {},
         "source_cache": {},
         "runs": [],
     }
@@ -41,7 +43,7 @@ class FileJsonStore:
     def load(self) -> dict[str, Any]:
         if not self.path.exists():
             return empty_state()
-        return json.loads(self.path.read_text(encoding="utf-8"))
+        return json.loads(self.path.read_text(encoding="utf-8-sig"))
 
     def save(self, payload: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,7 +84,7 @@ class GithubJsonStore:
             if exc.code == 404:
                 return empty_state(), ""
             raise
-        content = base64.b64decode(str(item.get("content", "")).encode("utf-8")).decode("utf-8")
+        content = base64.b64decode(str(item.get("content", "")).encode("utf-8")).decode("utf-8-sig")
         return json.loads(content), str(item.get("sha", ""))
 
     def load(self) -> dict[str, Any]:
@@ -119,7 +121,9 @@ class GithubJsonStore:
 def merge_state(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = empty_state()
     merged["seen_jobs"] = {**current.get("seen_jobs", {}), **incoming.get("seen_jobs", {})}
+    merged["sent_jobs"] = {**current.get("sent_jobs", {}), **incoming.get("sent_jobs", {})}
     merged["sent_weeks"] = {**current.get("sent_weeks", {}), **incoming.get("sent_weeks", {})}
+    merged["evaluated_jobs"] = {**current.get("evaluated_jobs", {}), **incoming.get("evaluated_jobs", {})}
     merged["source_cache"] = {**current.get("source_cache", {}), **incoming.get("source_cache", {})}
     runs = list(current.get("runs", [])) + list(incoming.get("runs", []))
     seen_run_ids = set()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import secrets
 from datetime import datetime
@@ -13,7 +12,7 @@ from .criteria import load_criteria
 from .digest import format_digest
 from .filtering import dedupe_jobs, remove_seen_jobs, source_filter_allows
 from .models import DigestRun, JobPosting, RankedOpportunity, SourceResult, now_iso
-from .ranker import RankingError, rank_deterministically, rank_with_llm
+from .ranker import rank_deterministically, rank_with_llm
 from .scheduling import should_send_now, week_key_for
 from .sender import DryRunSender, Sender, TwilioWhatsAppSender
 from .state import JsonStore, load_json_from_github, state_store_from_env
@@ -44,25 +43,69 @@ def apply_source_filters(jobs: list[JobPosting], source_by_id: dict[str, dict[st
     return filtered
 
 
+def ranked_from_evaluated_state(
+    state: dict[str, Any],
+    *,
+    max_jobs: int,
+    include_seen: bool = False,
+) -> tuple[list[RankedOpportunity], int]:
+    sent_jobs = state.get("sent_jobs", {})
+    ranked: list[RankedOpportunity] = []
+    for key, entry in state.get("evaluated_jobs", {}).items():
+        if not isinstance(entry, dict) or entry.get("status") != "included":
+            continue
+        if not include_seen and key in sent_jobs:
+            continue
+        job_payload = entry.get("job", {})
+        if not isinstance(job_payload, dict):
+            continue
+        try:
+            job = JobPosting(**job_payload)
+        except TypeError:
+            continue
+        ranked.append(
+            RankedOpportunity(
+                job=job,
+                score=float(entry.get("score", 0) or 0),
+                include=True,
+                scholar_fit_reason=str(entry.get("scholar_fit_reason", ""))[:400],
+                why_cool=str(entry.get("why_cool", ""))[:400],
+                risk_flags=[str(flag)[:120] for flag in entry.get("risk_flags", []) if str(flag).strip()],
+            )
+        )
+    ranked.sort(key=lambda item: (item.score, item.job.fetched_at), reverse=True)
+    selected = ranked[:max_jobs]
+    return [RankedOpportunity(**{**item.__dict__, "rank": index}) for index, item in enumerate(selected, start=1)], len(ranked)
+
+
 def update_state_after_send(state: dict[str, Any], *, week_key: str, selected: list[RankedOpportunity], run_payload: dict[str, Any]) -> dict[str, Any]:
+    sent_at = now_iso()
     seen_jobs = state.setdefault("seen_jobs", {})
+    sent_jobs = state.setdefault("sent_jobs", {})
     for item in selected:
         seen_jobs[item.job.stable_key] = {
-            "first_sent_at": now_iso(),
+            "first_sent_at": sent_at,
             "company": item.job.company,
             "title": item.job.title,
             "city": item.job.city,
             "url": item.job.canonical_url,
             "content_hash": item.job.content_hash,
         }
-    state.setdefault("sent_weeks", {})[week_key] = {"sent_at": now_iso(), "run_id": run_payload.get("run_id", "")}
+        sent_jobs[item.job.stable_key] = {
+            "sent_at": sent_at,
+            "week_key": week_key,
+            "run_id": run_payload.get("run_id", ""),
+            "company": item.job.company,
+            "title": item.job.title,
+            "city": item.job.city,
+            "url": item.job.canonical_url,
+        }
+    state.setdefault("sent_weeks", {})[week_key] = {"sent_at": sent_at, "run_id": run_payload.get("run_id", "")}
     runs = state.setdefault("runs", [])
     runs.append(run_payload)
     state["runs"] = runs[-50:]
     state["updated_at"] = now_iso()
     return state
-
-
 
 
 def sender_for_run(config: Any, *, dry_run: bool, sender: Sender | None = None) -> Sender:
@@ -71,6 +114,28 @@ def sender_for_run(config: Any, *, dry_run: bool, sender: Sender | None = None) 
     if dry_run:
         return DryRunSender()
     return TwilioWhatsAppSender(content_sid=config.twilio_content_sid, messaging_service_sid=config.twilio_messaging_service_sid)
+
+
+def send_selected_digest(
+    *,
+    config: Any,
+    send: bool,
+    selected: list[RankedOpportunity],
+    digest_text: str,
+    errors: list[str],
+    sender: Sender | None,
+) -> list[Any]:
+    recipient_results = []
+    ranker_failed = any(error.startswith("ranker_failed") for error in errors)
+    if send and not ranker_failed and (selected or config.send_empty_digest):
+        recipients = config.recipients
+        if not recipients:
+            errors.append("no_recipients_configured")
+            return recipient_results
+        active_sender = sender_for_run(config, dry_run=False, sender=sender)
+        for recipient in recipients:
+            recipient_results.append(active_sender.send(recipient, digest_text))
+    return recipient_results
 
 
 def run_digest(
@@ -82,6 +147,7 @@ def run_digest(
     sources_path: str = "",
     deterministic_fallback: bool | None = None,
     include_seen: bool = False,
+    from_state: bool = False,
     now: datetime | None = None,
     state_store: JsonStore | None = None,
     sender: Sender | None = None,
@@ -126,6 +192,62 @@ def run_digest(
             errors=errors,
             state_summary={"mutated": False},
         )
+
+    if from_state:
+        selected, candidate_count = ranked_from_evaluated_state(
+            state,
+            max_jobs=config.max_jobs,
+            include_seen=include_seen or force,
+        )
+        if not state.get("evaluated_jobs"):
+            errors.append("no_evaluated_jobs")
+        digest_text = format_digest(selected, week_key=week_key, errors=errors)
+        recipient_results = send_selected_digest(
+            config=config,
+            send=send,
+            selected=selected,
+            digest_text=digest_text,
+            errors=errors,
+            sender=sender,
+        )
+        finished_at = now_iso()
+        digest_run = DigestRun(
+            run_id=run_id,
+            week_key=week_key,
+            dry_run=dry_run,
+            send_requested=send,
+            started_at=started_at,
+            finished_at=finished_at,
+            source_results=[],
+            candidate_count=candidate_count,
+            selected_jobs=selected,
+            recipient_results=recipient_results,
+            errors=errors,
+            state_summary={
+                "mutated": False,
+                "evaluated_jobs": len(state.get("evaluated_jobs", {})),
+                "sent_jobs": len(state.get("sent_jobs", {})),
+            },
+            digest_text=digest_text,
+        )
+        run_payload = digest_run.to_dict()
+        if send:
+            all_recipient_ok = bool(recipient_results) and all(result.ok for result in recipient_results)
+            if all_recipient_ok:
+                update_state_after_send(state, week_key=week_key, selected=selected, run_payload=run_payload)
+                state_store.save(state)
+                digest_run = DigestRun(
+                    **{
+                        **digest_run.__dict__,
+                        "state_summary": {
+                            "mutated": True,
+                            "evaluated_jobs": len(state.get("evaluated_jobs", {})),
+                            "sent_jobs": len(state.get("sent_jobs", {})),
+                            "seen_jobs": len(state.get("seen_jobs", {})),
+                        },
+                    }
+                )
+        return digest_run
 
     sources_config = load_sources(root, sources_path)
     default_cities = set(config.allowed_cities)
@@ -175,15 +297,14 @@ def run_digest(
             selected = []
 
     digest_text = format_digest(selected, week_key=week_key, errors=errors)
-    recipient_results = []
-    ranker_failed = any(error.startswith("ranker_failed") for error in errors)
-    if send and not ranker_failed and (selected or config.send_empty_digest):
-        recipients = config.recipients
-        if not recipients:
-            errors.append("no_recipients_configured")
-        active_sender = sender_for_run(config, dry_run=False, sender=sender)
-        for recipient in recipients:
-            recipient_results.append(active_sender.send(recipient, digest_text))
+    recipient_results = send_selected_digest(
+        config=config,
+        send=send,
+        selected=selected,
+        digest_text=digest_text,
+        errors=errors,
+        sender=sender,
+    )
 
     finished_at = now_iso()
     digest_run = DigestRun(
@@ -211,5 +332,5 @@ def run_digest(
         if all_recipient_ok:
             update_state_after_send(state, week_key=week_key, selected=selected, run_payload=run_payload)
             state_store.save(state)
-            digest_run = DigestRun(**{**digest_run.__dict__, "state_summary": {"mutated": True, "seen_jobs": len(state.get("seen_jobs", {}))}})
+            digest_run = DigestRun(**{**digest_run.__dict__, "state_summary": {"mutated": True, "seen_jobs": len(state.get("seen_jobs", {})), "sent_jobs": len(state.get("sent_jobs", {}))}})
     return digest_run

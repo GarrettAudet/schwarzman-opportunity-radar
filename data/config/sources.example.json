@@ -11,7 +11,8 @@
       "adapter": "greenhouse",
       "enabled": false,
       "company": "ExampleCo",
-      "url": "https://boards-api.greenhouse.io/v1/boards/example/jobs?content=true",
+      "board_token": "example",
+      "max_detail_fetches": 25,
       "cities": ["New York", "San Francisco", "Sydney"],
       "include_keywords": [],
       "exclude_keywords": ["commission only"]

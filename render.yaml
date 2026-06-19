@@ -1,4 +1,4 @@
-﻿services:
+services:
   - type: web
     name: opportunity-radar-api
     runtime: python
@@ -45,12 +45,39 @@
         value: sources.json
 
   - type: cron
+    name: opportunity-radar-discovery
+    runtime: python
+    plan: starter
+    schedule: '0 15 * * *'
+    buildCommand: python -m pip install -r requirements-backend.txt
+    startCommand: python scripts/run_discovery.py --root . --write
+    envVars:
+      - key: OPPORTUNITY_TIMEZONE
+        value: America/Edmonton
+      - key: OPPORTUNITY_MAX_JOBS
+        value: "10"
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_RANK_MODEL
+        value: openai/gpt-4.1-mini
+      - key: GITHUB_STATE_REPO
+        sync: false
+      - key: GITHUB_STATE_PATH
+        value: opportunity-state.json
+      - key: GITHUB_STATE_REF
+        value: main
+      - key: GITHUB_STATE_TOKEN
+        sync: false
+      - key: GITHUB_SOURCES_PATH
+        value: sources.json
+
+  - type: cron
     name: opportunity-radar-weekly
     runtime: python
     plan: starter
     schedule: '0 * * * MON'
     buildCommand: python -m pip install -r requirements-backend.txt
-    startCommand: python scripts/run_weekly_digest.py --root . --send --respect-schedule
+    startCommand: python scripts/run_weekly_digest.py --root . --send --respect-schedule --from-state
     envVars:
       - key: OPPORTUNITY_RECIPIENTS
         sync: false
@@ -62,10 +89,6 @@
         value: "9"
       - key: OPPORTUNITY_MAX_JOBS
         value: "10"
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: OPENROUTER_RANK_MODEL
-        value: openai/gpt-4.1-mini
       - key: TWILIO_ACCOUNT_SID
         sync: false
       - key: TWILIO_AUTH_TOKEN

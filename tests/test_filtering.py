@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from opportunity_radar.filtering import explicit_year_requirements, years_experience_allowed
+from opportunity_radar.filtering import contains_any, explicit_year_requirements, source_filter_allows, years_experience_allowed
+from opportunity_radar.models import JobPosting
 
 
 class FilteringTests(unittest.TestCase):
@@ -15,7 +16,27 @@ class FilteringTests(unittest.TestCase):
         self.assertFalse(years_experience_allowed("6+ years of experience required"))
         self.assertFalse(years_experience_allowed("4-7 years of relevant experience"))
         self.assertFalse(years_experience_allowed("Requires 8 years of experience leading operations teams."))
+        self.assertFalse(years_experience_allowed("Preferred qualifications: 8+ years of enterprise sales or business development experience."))
+        self.assertFalse(years_experience_allowed("Experience requirement: 6+ years in operations."))
 
+    def test_keyword_filters_use_boundaries(self) -> None:
+        self.assertFalse(contains_any("internal mobility program", ["intern"]))
+        self.assertTrue(contains_any("summer intern program", ["intern"]))
+        self.assertTrue(contains_any("chief of staff role", ["chief of staff"]))
+    def test_source_filter_scans_long_descriptions_for_experience(self) -> None:
+        long_intro = "context " * 350
+        job = JobPosting(
+            source_id="fixture",
+            source_name="Fixture",
+            external_id="long-years",
+            title="Operations Lead",
+            company="Example",
+            location_text="New York",
+            city="New York",
+            canonical_url="https://example.com/long-years",
+            description_text=long_intro + "Preferred qualifications: 8+ years of enterprise sales or business development experience.",
+        )
+        self.assertFalse(source_filter_allows(job, {}))
     def test_years_parser_ignores_unrelated_numbers(self) -> None:
         self.assertEqual(explicit_year_requirements("Join a Fortune 500 company in 2026."), [])
         self.assertTrue(years_experience_allowed("Work with 100 teams across 5 markets."))
