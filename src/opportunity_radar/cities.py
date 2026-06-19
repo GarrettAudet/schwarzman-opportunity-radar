@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 
-CANONICAL_CITIES = ("Beijing", "Dubai", "Shenzhen", "New York", "San Francisco")
+CANONICAL_CITIES = ("Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney")
 
 ALIASES = {
     "beijing": "Beijing",
@@ -19,6 +19,9 @@ ALIASES = {
     "sf": "San Francisco",
     "bay area": "San Francisco",
     "san francisco bay area": "San Francisco",
+    "sydney": "Sydney",
+    "sydney nsw": "Sydney",
+    "sydney, nsw": "Sydney",
 }
 
 REMOTE_TERMS = {"remote", "hybrid", "distributed", "work from home", "wfh"}

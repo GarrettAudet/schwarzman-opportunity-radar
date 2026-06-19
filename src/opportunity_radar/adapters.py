@@ -177,7 +177,7 @@ def parse_rss(text: str, source: dict[str, Any]) -> list[dict[str, Any]]:
         title = item.findtext("title") or ""
         description = item.findtext("description") or ""
         location = ""
-        match = re.search(r"\b(Beijing|Dubai|Shenzhen|Shenzen|New York City|New York|NYC|San Francisco|SF)\b", f"{title} {description}", flags=re.I)
+        match = re.search(r"\b(Beijing|Dubai|Shenzhen|Shenzen|New York City|New York|NYC|San Francisco|SF|Sydney)\b", f"{title} {description}", flags=re.I)
         if match:
             location = match.group(1)
         parsed.append(

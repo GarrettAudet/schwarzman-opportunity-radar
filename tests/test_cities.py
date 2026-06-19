@@ -7,11 +7,12 @@ from opportunity_radar.cities import city_allowed_for_location, city_from_locati
 
 class CityTests(unittest.TestCase):
     def test_city_aliases(self) -> None:
-        allowed = canonical_city_set(["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco"])
+        allowed = canonical_city_set(["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"])
         self.assertEqual(city_from_location("NYC", allowed), "New York")
         self.assertEqual(city_from_location("New York City, NY", allowed), "New York")
         self.assertEqual(city_from_location("SF Bay Area", allowed), "San Francisco")
         self.assertEqual(city_from_location("Shenzen, China", allowed), "Shenzhen")
+        self.assertEqual(city_from_location("Sydney, NSW", allowed), "Sydney")
 
     def test_remote_requires_city_by_default(self) -> None:
         allowed = canonical_city_set(["New York"])

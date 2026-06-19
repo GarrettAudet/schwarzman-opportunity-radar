@@ -1,7 +1,7 @@
 {
   "version": 1,
   "defaults": {
-    "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco"],
+    "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"],
     "allow_global_remote": false
   },
   "sources": [
@@ -12,7 +12,7 @@
       "enabled": false,
       "company": "ExampleCo",
       "url": "https://boards-api.greenhouse.io/v1/boards/example/jobs?content=true",
-      "cities": ["New York", "San Francisco"],
+      "cities": ["New York", "San Francisco", "Sydney"],
       "include_keywords": [],
       "exclude_keywords": ["commission only"]
     },
@@ -23,7 +23,7 @@
       "enabled": false,
       "company": "Example Startup",
       "url": "https://api.lever.co/v0/postings/example?mode=json",
-      "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco"]
+      "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"]
     }
   ]
 }

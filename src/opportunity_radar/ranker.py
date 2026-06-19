@@ -28,6 +28,9 @@ COOL_TERMS = {
     "founder": 14,
     "startup": 12,
     "product": 10,
+    "operations": 12,
+    "operator": 10,
+    "ops": 8,
     "climate": 10,
     "fintech": 10,
     "crypto": 8,
@@ -148,7 +151,7 @@ def rank_deterministically(jobs: list[JobPosting], *, max_selected: int) -> list
             if term in haystack:
                 score += points
                 reasons.append(term)
-        if job.city in {"Beijing", "Dubai", "Shenzhen", "New York", "San Francisco"}:
+        if job.city in {"Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"}:
             score += 8
         include = score >= 70
         why = f"{job.company} role in {job.city}: {job.title}"

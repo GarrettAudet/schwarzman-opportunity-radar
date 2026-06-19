@@ -44,7 +44,7 @@ def env_csv(name: str) -> list[str]:
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 @dataclass(frozen=True)

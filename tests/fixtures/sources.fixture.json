@@ -1,7 +1,7 @@
 {
   "version": 1,
   "defaults": {
-    "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco"],
+    "cities": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"],
     "allow_global_remote": false
   },
   "sources": [
@@ -38,6 +38,22 @@
           "location": "Shenzen",
           "canonical_url": "https://example.com/shenzen-vc",
           "description_text": "Invest in frontier startups across hardware, climate, and AI."
+        },
+        {
+          "external_id": "sydney-ops-1",
+          "title": "Operations Associate",
+          "company": "Canva",
+          "location": "Sydney, NSW",
+          "canonical_url": "https://example.com/sydney-ops",
+          "description_text": "Join a fast-growing global technology company in an operations role. 3 years of experience preferred."
+        },
+        {
+          "external_id": "too-senior-1",
+          "title": "Director of Operations",
+          "company": "Too Senior Co",
+          "location": "New York",
+          "canonical_url": "https://example.com/too-senior",
+          "description_text": "Requires 8+ years of experience leading operations teams."
         },
         {
           "external_id": "london-1",

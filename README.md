@@ -1,13 +1,13 @@
-﻿# OpportunityRadar
+# OpportunityRadar
 
-OpportunityRadar sends a weekly WhatsApp digest of high-signal jobs for Schwarzman Scholars. It focuses on roles in Beijing, Dubai, Shenzhen, New York, and San Francisco, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
+OpportunityRadar sends a weekly WhatsApp digest of high-signal jobs for Schwarzman Scholars. It focuses on roles in Beijing, Dubai, Shenzhen, New York, San Francisco, and Sydney, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
 
 The project is intentionally built around adapters and durable state so one broken career page does not break the whole weekly digest.
 
 ## What It Does
 
 - Pulls jobs from structured ATS/feed sources first: Greenhouse, Lever, Ashby, RSS, and a configurable HTML fallback.
-- Normalizes target-city aliases including NYC, New York City, SF, Shenzhen, and Shenzen.
+- Normalizes target-city aliases including NYC, New York City, SF, Shenzhen, Shenzen, and Sydney.
 - Dedupe jobs across sources and suppresses jobs already sent in previous weeks.
 - Uses `docs/opportunity-criteria.md` to guide LLM judgment for what counts as a cool Scholar-relevant role.
 - Sends a WhatsApp-safe weekly digest through Twilio.
@@ -82,6 +82,7 @@ OPPORTUNITY_TIMEZONE=America/Edmonton
 OPPORTUNITY_SEND_DOW=MON
 OPPORTUNITY_SEND_HOUR=9
 OPPORTUNITY_MAX_JOBS=10
+OPPORTUNITY_CITIES=Beijing,Dubai,Shenzhen,New York,San Francisco,Sydney
 OPENROUTER_API_KEY=<key>
 OPENROUTER_RANK_MODEL=openai/gpt-4.1-mini
 TWILIO_ACCOUNT_SID=<sid>
