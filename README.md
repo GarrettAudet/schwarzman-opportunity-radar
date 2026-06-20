@@ -133,7 +133,7 @@ GITHUB_CONDITIONS_PATH=conditions.json
 python scripts\run_production_gate.py --root .
 ```
 
-The gate compiles Python, runs the unit/integration tests, performs fixture-backed registry refresh and dynamic discovery smokes, then performs configured-source discovery and digest smokes.
+The gate compiles Python, runs the unit/integration tests, performs fixture-backed registry refresh, dynamic discovery, and detection-to-Twilio smokes, then performs configured-source discovery and digest smokes.
 
 ## Deployment
 

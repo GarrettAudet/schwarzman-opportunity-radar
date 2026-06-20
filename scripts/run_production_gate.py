@@ -114,6 +114,10 @@ def main() -> int:
             [py, "-m", "unittest", "tests.test_discovery.RegistryDiscoveryTests.test_daily_discovery_polls_registry_without_configured_companies"],
         ),
         GateStep(
+            "fixture_detection_to_twilio_smoke",
+            [py, "-m", "unittest", "tests.test_end_to_end_pipeline.EndToEndPipelineTests.test_detection_to_twilio_whatsapp_template_message"],
+        ),
+        GateStep(
             "fixture_discovery_smoke",
             [
                 py,
