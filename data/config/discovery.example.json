@@ -1,0 +1,13 @@
+﻿{
+  "version": 1,
+  "enabled": true,
+  "provider": "common_crawl_registry",
+  "ats_hosts": ["job-boards.greenhouse.io", "boards.greenhouse.io"],
+  "max_registry_refresh_urls": 5000,
+  "max_boards_per_daily_run": 300,
+  "max_jobs_per_source": 500,
+  "max_detail_fetches_per_board": 12,
+  "max_board_failures": 3,
+  "posted_within_days": 8,
+  "exclude_domains": ["linkedin.com", "www.linkedin.com", "m.linkedin.com"]
+}

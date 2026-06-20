@@ -6,8 +6,8 @@ The project is intentionally built around adapters and durable state so one brok
 
 ## What It Does
 
-- Pulls jobs from structured ATS/feed sources first: Greenhouse, Lever, Ashby, RSS, and a configurable HTML fallback.
-- For Greenhouse, fetches the board index first, keeps recent target-city postings, condition-filters the lightweight postings, then detail-fetches only promising roles.
+- Discovers public Greenhouse boards from the free Common Crawl URL index, stores board tokens in durable state, then polls structured ATS APIs.
+- For Greenhouse, polls discovered board indexes, keeps recent target-city postings, condition-filters lightweight rows, then detail-fetches only promising roles.
 - Normalizes target-city aliases including NYC, New York City, SF, Shenzhen, Shenzen, and Sydney.
 - Applies deterministic condition filters before the LLM, including posting recency, target locations, role groups, exclude terms, and the 0-5 years-of-experience requirement.
 - Stores daily evaluated opportunities in durable JSON state, then sends the weekly digest from unsent included jobs.
@@ -21,17 +21,19 @@ The project is intentionally built around adapters and durable state so one brok
 
 ```mermaid
 flowchart LR
-    A[Daily Render Cron] --> B[Source Discovery]
-    B --> C[Structured Adapters]
-    C --> D[City + Condition Filters]
-    D --> E[LLM Ranker]
-    E --> F[Evaluated Jobs in State]
-    G[Weekly Render Cron] --> H[Digest From Unsent Winners]
-    H --> I[Twilio WhatsApp Sender]
-    J[Protected API] --> H
-    K[Criteria Markdown] --> E
-    F <--> L[Private JSON State]
-    H <--> L
+    A[Weekly/Manual Registry Refresh] --> B[Common Crawl Board Registry]
+    B --> C[Private JSON State]
+    D[Daily Render Cron] --> E[Poll Active Greenhouse Boards]
+    C <--> E
+    E --> F[City + Condition Filters]
+    F --> G[LLM Ranker]
+    G --> H[Evaluated Jobs in State]
+    H <--> C
+    I[Weekly Render Cron] --> J[Digest From Unsent Winners]
+    J <--> C
+    J --> K[Twilio WhatsApp Sender]
+    L[Protected API] --> J
+    M[Criteria Markdown] --> G
 ```
 
 ## Local Development
@@ -46,6 +48,12 @@ Run a fixture-backed weekly dry run without spending model tokens:
 
 ```powershell
 python scripts\run_weekly_digest.py --root . --sources tests\fixtures\sources.fixture.json --deterministic-fallback --include-seen
+```
+
+Refresh the public ATS board registry from a fixture-backed Common Crawl response:
+
+```powershell
+python scripts\refresh_registry.py --root . --discovery-config tests\fixtures\discovery.fixture.json --json
 ```
 
 Run daily discovery against fixtures using fixture conditions:
@@ -93,7 +101,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/digest/preview -Header
 
 ## Configuration
 
-Copy `data/config/sources.example.json` to `data/config/sources.local.json` for local private source config. Copy `data/config/conditions.example.json` to `data/config/conditions.local.json` to tune posting recency, target locations, role groups, exclude terms, and years-of-experience rules. Production can read `sources.json` and `conditions.json` from a private GitHub repo using `GITHUB_SOURCES_PATH` and `GITHUB_CONDITIONS_PATH`.
+Copy `data/config/discovery.example.json` to `data/config/discovery.local.json` to tune Common Crawl registry refresh and board-polling limits. Copy `data/config/conditions.example.json` to `data/config/conditions.local.json` to tune posting recency, target locations, role groups, exclude terms, and years-of-experience rules. `sources.local.json` remains optional for deliberately configured company boards or fixture-style sources. Production can read `discovery.json`, `conditions.json`, and optional `sources.json` from a private GitHub repo using `GITHUB_DISCOVERY_PATH`, `GITHUB_CONDITIONS_PATH`, and `GITHUB_SOURCES_PATH`.
 
 Important env vars:
 
@@ -114,7 +122,8 @@ TWILIO_WHATSAPP_CONTENT_SID=<optional approved template sid>
 GITHUB_STATE_REPO=<owner/private-state-repo>
 GITHUB_STATE_TOKEN=<fine-grained contents read/write token>
 GITHUB_STATE_PATH=opportunity-state.json
-GITHUB_SOURCES_PATH=sources.json
+GITHUB_DISCOVERY_PATH=discovery.json
+GITHUB_SOURCES_PATH=<optional sources.json>
 GITHUB_CONDITIONS_PATH=conditions.json
 ```
 
@@ -124,13 +133,14 @@ GITHUB_CONDITIONS_PATH=conditions.json
 python scripts\run_production_gate.py --root .
 ```
 
-The gate compiles Python, runs the unit/integration tests, performs a fixture-backed discovery smoke test, and performs a fixture-backed digest smoke test.
+The gate compiles Python, runs the unit/integration tests, performs fixture-backed registry refresh and dynamic discovery smokes, then performs configured-source discovery and digest smokes.
 
 ## Deployment
 
-`render.yaml` defines a web service plus two cron services:
+`render.yaml` defines a web service plus three cron services:
 
-- `opportunity-radar-discovery` runs daily and writes evaluated jobs to durable state.
+- `opportunity-radar-registry-refresh` runs weekly and refreshes discovered Greenhouse board tokens from Common Crawl.
+- `opportunity-radar-discovery` runs daily, polls active registry boards plus any optional configured sources, and writes evaluated jobs to durable state.
 - `opportunity-radar-weekly` runs hourly on Mondays in UTC with `--respect-schedule --from-state`; the app only sends during the configured local send hour, avoiding daylight-saving drift.
 
 See `docs/private-state-repo-readme.md` for the private state/config repo layout.

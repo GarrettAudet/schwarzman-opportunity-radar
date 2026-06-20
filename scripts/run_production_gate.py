@@ -98,6 +98,22 @@ def main() -> int:
         GateStep("python_compile", [py, "-m", "py_compile", *python_files(root)]),
         GateStep("unit_tests", [py, "-m", "unittest", "discover", "-s", "tests"]),
         GateStep(
+            "fixture_registry_refresh_smoke",
+            [
+                py,
+                "scripts\\refresh_registry.py",
+                "--root",
+                ".",
+                "--discovery-config",
+                "tests\\fixtures\\discovery.fixture.json",
+                "--json",
+            ],
+        ),
+        GateStep(
+            "fixture_dynamic_discovery_smoke",
+            [py, "-m", "unittest", "tests.test_discovery.RegistryDiscoveryTests.test_daily_discovery_polls_registry_without_configured_companies"],
+        ),
+        GateStep(
             "fixture_discovery_smoke",
             [
                 py,

@@ -19,6 +19,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="Re-evaluate unchanged jobs")
     parser.add_argument("--sources", default="", help="Optional sources JSON path")
     parser.add_argument("--conditions", default="", help="Optional conditions JSON path")
+    parser.add_argument("--discovery-config", default="", help="Optional discovery JSON path")
     parser.add_argument("--deterministic-fallback", action="store_true", help="Use deterministic ranking if OpenRouter is unavailable")
     parser.add_argument("--json", action="store_true", help="Print full JSON")
     args = parser.parse_args()
@@ -29,12 +30,14 @@ def main() -> int:
         force=bool(args.force),
         sources_path=args.sources,
         conditions_path=args.conditions,
+        discovery_path=args.discovery_config,
         deterministic_fallback=True if args.deterministic_fallback else None,
     )
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         print(f"Discovery run: {result['run_id']}")
+        print(f"Registry boards: {result.get('registry_boards_polled', 0)}/{result.get('registry_board_count', 0)} polled")
         print(f"City candidates: {result['city_candidate_count']} total, {result.get('recent_city_candidate_count', 0)} recent")
         print(f"Recent condition matches: {result['condition_candidate_count']}")
         print(f"Ranked candidates: {result['candidate_count']}")

@@ -212,5 +212,192 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(digest.selected_jobs[0].job.external_id, "100")
 
 
+
+class RegistryGreenhouseFetcher:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    def __call__(self, url: str, *, headers: dict[str, str] | None = None, timeout: int = 30) -> FetchResponse:
+        self.urls.append(url)
+        if url.endswith("/boards/coolco/jobs"):
+            return FetchResponse(
+                status=200,
+                url=url,
+                headers={"etag": "coolco-index-v1"},
+                body=json.dumps(
+                    {
+                        "jobs": [
+                            {
+                                "id": 100,
+                                "title": "Strategy and Operations Associate",
+                                "absolute_url": "https://job-boards.greenhouse.io/coolco/jobs/100",
+                                "location": {"name": "San Francisco, CA"},
+                                "first_published": "2026-06-15T10:00:00-04:00",
+                                "updated_at": "2026-06-15T10:00:00-04:00",
+                            },
+                            {
+                                "id": 101,
+                                "title": "Operations Lead",
+                                "absolute_url": "https://job-boards.greenhouse.io/coolco/jobs/101",
+                                "location": {"name": "New York City, NY"},
+                                "first_published": "2026-06-16T10:00:00-04:00",
+                                "updated_at": "2026-06-16T10:00:00-04:00",
+                            },
+                            {
+                                "id": 102,
+                                "title": "Strategy Associate",
+                                "absolute_url": "https://job-boards.greenhouse.io/coolco/jobs/102",
+                                "location": {"name": "San Francisco, CA"},
+                                "first_published": "2026-05-01T10:00:00-04:00",
+                                "updated_at": "2026-06-16T10:00:00-04:00",
+                            },
+                            {
+                                "id": 103,
+                                "title": "Operations Associate",
+                                "absolute_url": "https://job-boards.greenhouse.io/coolco/jobs/103",
+                                "location": {"name": "London"},
+                                "first_published": "2026-06-16T10:00:00-04:00",
+                                "updated_at": "2026-06-16T10:00:00-04:00",
+                            },
+                        ]
+                    }
+                ),
+            )
+        if url.endswith("/boards/coolco/jobs/100"):
+            return FetchResponse(
+                status=200,
+                url=url,
+                headers={},
+                body=json.dumps(
+                    {
+                        "id": 100,
+                        "title": "Strategy and Operations Associate",
+                        "absolute_url": "https://job-boards.greenhouse.io/coolco/jobs/100",
+                        "location": {"name": "San Francisco, CA"},
+                        "first_published": "2026-06-15T10:00:00-04:00",
+                        "updated_at": "2026-06-15T10:00:00-04:00",
+                        "content": "Work on AI strategy and business operations. 3 years of experience preferred.",
+                    }
+                ),
+            )
+        if url.endswith("/boards/coolco/jobs/101"):
+            return FetchResponse(
+                status=200,
+                url=url,
+                headers={},
+                body=json.dumps(
+                    {
+                        "id": 101,
+                        "title": "Operations Lead",
+                        "absolute_url": "https://job-boards.greenhouse.io/coolco/jobs/101",
+                        "location": {"name": "New York City, NY"},
+                        "first_published": "2026-06-16T10:00:00-04:00",
+                        "updated_at": "2026-06-16T10:00:00-04:00",
+                        "content": "Requires 8+ years of operations experience.",
+                    }
+                ),
+            )
+        raise AssertionError(f"unexpected URL {url}")
+
+
+class RegistryDiscoveryTests(unittest.TestCase):
+    def test_daily_discovery_polls_registry_without_configured_companies(self) -> None:
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                sources_path = tmp_path / "sources.json"
+                sources_path.write_text(
+                    json.dumps({"version": 1, "defaults": {"cities": ["New York", "San Francisco"], "allow_global_remote": False}, "sources": []}),
+                    encoding="utf-8",
+                )
+                conditions_path = tmp_path / "conditions.json"
+                conditions_path.write_text(
+                    json.dumps(
+                        {
+                            "version": 1,
+                            "locations": ["New York", "San Francisco"],
+                            "posted_within_days": 8,
+                            "max_years_experience": 5,
+                            "exclude_any": ["intern"],
+                            "role_groups": [
+                                {
+                                    "id": "strategy_operations",
+                                    "label": "Strategy / Operations",
+                                    "include_any": ["strategy", "operations"],
+                                }
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                discovery_path = tmp_path / "discovery.json"
+                discovery_path.write_text(
+                    json.dumps({"version": 1, "enabled": True, "max_boards_per_daily_run": 5, "max_detail_fetches_per_board": 5}),
+                    encoding="utf-8",
+                )
+                store = FileJsonStore(tmp_path / "state.json")
+                store.save(
+                    {
+                        "version": 1,
+                        "seen_jobs": {},
+                        "sent_jobs": {},
+                        "sent_weeks": {},
+                        "evaluated_jobs": {},
+                        "source_cache": {},
+                        "board_registry": {
+                            "greenhouse:coolco": {
+                                "ats": "greenhouse",
+                                "board_token": "coolco",
+                                "active": True,
+                                "first_seen": "2026-06-18T00:00:00+00:00",
+                                "last_seen": "2026-06-18T00:00:00+00:00",
+                                "last_polled": "",
+                                "failure_count": 0,
+                            }
+                        },
+                        "runs": [],
+                    }
+                )
+                fetcher = RegistryGreenhouseFetcher()
+                dry_run = run_discovery(
+                    ROOT,
+                    sources_path=str(sources_path),
+                    conditions_path=str(conditions_path),
+                    discovery_path=str(discovery_path),
+                    deterministic_fallback=True,
+                    state_store=store,
+                    now=datetime(2026, 6, 20, tzinfo=timezone.utc),
+                    fetcher=fetcher,
+                )
+                self.assertEqual(dry_run["registry_board_count"], 1)
+                self.assertEqual(dry_run["registry_boards_polled"], 1)
+                self.assertEqual(dry_run["city_candidate_count"], 3)
+                self.assertEqual(dry_run["recent_city_candidate_count"], 2)
+                self.assertEqual(dry_run["condition_candidate_count"], 2)
+                self.assertEqual(dry_run["candidate_count"], 1)
+                self.assertEqual(dry_run["included_count"], 1)
+                self.assertEqual(dry_run["included_jobs"][0]["job"]["company"], "Coolco")
+                self.assertTrue(any(url.endswith("/boards/coolco/jobs/100") for url in fetcher.urls))
+                self.assertTrue(any(url.endswith("/boards/coolco/jobs/101") for url in fetcher.urls))
+                self.assertFalse(any(url.endswith("/boards/coolco/jobs/102") for url in fetcher.urls))
+
+                write_run = run_discovery(
+                    ROOT,
+                    write=True,
+                    sources_path=str(sources_path),
+                    conditions_path=str(conditions_path),
+                    discovery_path=str(discovery_path),
+                    deterministic_fallback=True,
+                    state_store=store,
+                    now=datetime(2026, 6, 20, tzinfo=timezone.utc),
+                    fetcher=RegistryGreenhouseFetcher(),
+                )
+                self.assertTrue(write_run["state_summary"]["mutated"])
+                state = store.load()
+                self.assertTrue(state["board_registry"]["greenhouse:coolco"]["last_polled"])
+                statuses = {entry["job"]["external_id"]: entry["status"] for entry in state["evaluated_jobs"].values()}
+                self.assertEqual(statuses["100"], "included")
+                self.assertEqual(statuses["101"], "rejected")
+
 if __name__ == "__main__":
     unittest.main()

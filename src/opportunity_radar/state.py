@@ -32,6 +32,7 @@ def empty_state() -> dict[str, Any]:
         "sent_weeks": {},
         "evaluated_jobs": {},
         "source_cache": {},
+        "board_registry": {},
         "runs": [],
     }
 
@@ -125,6 +126,7 @@ def merge_state(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str, 
     merged["sent_weeks"] = {**current.get("sent_weeks", {}), **incoming.get("sent_weeks", {})}
     merged["evaluated_jobs"] = {**current.get("evaluated_jobs", {}), **incoming.get("evaluated_jobs", {})}
     merged["source_cache"] = {**current.get("source_cache", {}), **incoming.get("source_cache", {})}
+    merged["board_registry"] = {**current.get("board_registry", {}), **incoming.get("board_registry", {})}
     runs = list(current.get("runs", [])) + list(incoming.get("runs", []))
     seen_run_ids = set()
     unique_runs = []

@@ -16,6 +16,7 @@ from .filtering import dedupe_jobs, source_filter_allows
 from .models import JobPosting, RankedOpportunity, SourceResult, now_iso
 from .pipeline import enabled_sources, load_sources
 from .ranker import rank_deterministically, rank_with_llm
+from .registry import active_registry_sources, load_discovery_config, record_board_poll_result
 from .scheduling import week_key_for
 from .state import JsonStore, state_store_from_env
 
@@ -285,6 +286,7 @@ def run_discovery(
     force: bool = False,
     sources_path: str = "",
     conditions_path: str = "",
+    discovery_path: str = "",
     deterministic_fallback: bool | None = None,
     now: datetime | None = None,
     state_store: JsonStore | None = None,
@@ -299,6 +301,7 @@ def run_discovery(
     state = store.load()
     sources_config = load_sources(root, sources_path)
     conditions_config = load_conditions(root, conditions_path)
+    discovery_config = load_discovery_config(root, discovery_path)
     defaults = sources_config.get("defaults", {}) if isinstance(sources_config.get("defaults", {}), dict) else {}
     condition_cities = conditions_allowed_cities(conditions_config)
     default_cities = condition_cities or set(config.allowed_cities)
@@ -308,6 +311,12 @@ def run_discovery(
         if not default_cities:
             default_cities = source_default_cities
     allow_global_remote = bool(conditions_config.get("allow_global_remote", defaults.get("allow_global_remote", config.allow_global_remote)))
+    registry_sources = active_registry_sources(
+        state,
+        discovery_config,
+        default_cities=default_cities,
+        allow_global_remote=allow_global_remote,
+    )
     state_source_cache = state.get("source_cache", {})
 
     all_jobs: list[JobPosting] = []
@@ -319,8 +328,10 @@ def run_discovery(
     city_candidate_count = 0
     recent_city_candidate_count = 0
     condition_candidate_count = 0
+    registry_boards_polled = 0
+    all_sources = [*registry_sources, *enabled_sources(sources_config)]
 
-    for source in enabled_sources(sources_config):
+    for source in all_sources:
         source_id = str(source.get("id") or source.get("name") or "source")
         adapter = str(source.get("adapter", "")).strip().lower()
         if adapter == "greenhouse":
@@ -354,6 +365,15 @@ def run_discovery(
         condition_candidate_count += batch.condition_candidates
         if batch.cache_update:
             source_cache_updates[source_id] = batch.cache_update
+        if source.get("_registry_key"):
+            registry_boards_polled += 1
+            record_board_poll_result(
+                state,
+                source,
+                ok=batch.result.ok,
+                error=batch.result.error,
+                max_failures=int(discovery_config.get("max_board_failures", 3)),
+            )
         if not batch.result.ok:
             errors.append(f"source_failed:{source_id}:{batch.result.error}")
 
@@ -407,6 +427,8 @@ def run_discovery(
         "started_at": started_at,
         "finished_at": finished_at,
         "source_results": [item.to_dict() for item in source_results],
+        "registry_board_count": len(registry_sources),
+        "registry_boards_polled": registry_boards_polled,
         "city_candidate_count": city_candidate_count,
         "recent_city_candidate_count": recent_city_candidate_count,
         "condition_candidate_count": condition_candidate_count,
@@ -437,6 +459,7 @@ def run_discovery(
             "mutated": mutated,
             "evaluated_updates": len(state_updates),
             "evaluated_jobs": len(state.get("evaluated_jobs", {})),
+            "board_registry": len(state.get("board_registry", {})),
         },
         "included_jobs": [ranked_payload(item, condition_matches_by_key) for item in included],
     }
