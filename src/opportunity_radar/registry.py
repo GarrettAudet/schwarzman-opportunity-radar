@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -541,6 +542,11 @@ def refs_from_payload(payload: dict[str, Any]) -> list[DiscoveredPostingRef]:
     return refs
 
 
+def stable_poll_bucket(value: str, seed: str) -> str:
+    payload = f"{seed}:{value}".encode("utf-8", errors="ignore")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def active_registry_sources(state: dict[str, Any], discovery_config: dict[str, Any], *, default_cities: set[str], allow_global_remote: bool) -> list[dict[str, Any]]:
     if not bool(discovery_config.get("enabled", True)):
         return []
@@ -560,7 +566,8 @@ def active_registry_sources(state: dict[str, Any], discovery_config: dict[str, A
         if not token:
             continue
         entries.append((str(key), entry))
-    entries.sort(key=lambda item: (str(item[1].get("last_polled", "")), str(item[1].get("board_token", ""))))
+    seed = str(discovery_config.get("poll_spread_seed", "opportunity-radar-v1"))
+    entries.sort(key=lambda item: (str(item[1].get("last_polled", "")), stable_poll_bucket(str(item[1].get("board_token", "")), seed)))
     sources: list[dict[str, Any]] = []
     cities = sorted(default_cities)
     for key, entry in entries[:max_boards]:

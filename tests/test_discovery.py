@@ -20,9 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class FakeGreenhouseFetcher:
     def __init__(self) -> None:
         self.urls: list[str] = []
+        self.headers: list[dict[str, str]] = []
 
     def __call__(self, url: str, *, headers: dict[str, str] | None = None, timeout: int = 30) -> FetchResponse:
         self.urls.append(url)
+        self.headers.append(dict(headers or {}))
         if url.endswith("/jobs"):
             return FetchResponse(
                 status=200,
@@ -210,6 +212,21 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(digest.candidate_count, 1)
                 self.assertEqual(len(digest.selected_jobs), 1)
                 self.assertEqual(digest.selected_jobs[0].job.external_id, "100")
+
+                force_fetcher = FakeGreenhouseFetcher()
+                forced = run_discovery(
+                    ROOT,
+                    write=True,
+                    force=True,
+                    sources_path=str(sources_path),
+                    conditions_path=str(conditions_path),
+                    deterministic_fallback=True,
+                    state_store=store,
+                    now=datetime(2026, 6, 20, tzinfo=timezone.utc),
+                    fetcher=force_fetcher,
+                )
+                self.assertEqual(forced["city_candidate_count"], 3)
+                self.assertNotIn("If-None-Match", force_fetcher.headers[0])
 
 
 

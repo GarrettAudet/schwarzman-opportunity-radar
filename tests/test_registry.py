@@ -15,6 +15,7 @@ from opportunity_radar.registry import (
     parse_greenhouse_job_url,
     record_board_poll_result,
     refs_from_payload,
+    stable_poll_bucket,
 )
 
 
@@ -103,6 +104,24 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(sources[0]["adapter"], "greenhouse")
         self.assertEqual(sources[0]["board_token"], "coolco")
         self.assertEqual(sources[0]["max_detail_fetches"], 7)
+
+    def test_active_registry_sources_spreads_unpolled_boards_by_hash(self) -> None:
+        board_tokens = ["alpha", "bravo", "charlie", "delta", "echo"]
+        state = {
+            "board_registry": {
+                f"greenhouse:{token}": {"ats": "greenhouse", "board_token": token, "active": True, "last_polled": ""}
+                for token in board_tokens
+            }
+        }
+        sources = active_registry_sources(
+            state,
+            {"enabled": True, "max_boards_per_daily_run": 3, "poll_spread_seed": "test-seed"},
+            default_cities={"New York"},
+            allow_global_remote=False,
+        )
+        expected = sorted(board_tokens, key=lambda token: stable_poll_bucket(token, "test-seed"))[:3]
+        self.assertEqual([source["board_token"] for source in sources], expected)
+        self.assertNotEqual([source["board_token"] for source in sources], ["alpha", "bravo", "charlie"])
 
     def test_parse_cdx_records_handles_json_lines(self) -> None:
         records = parse_cdx_records('{"url":"https://job-boards.greenhouse.io/a/jobs/1"}\n{"url":"https://job-boards.greenhouse.io/b/jobs/2"}')

@@ -51,6 +51,14 @@ class ConditionTests(unittest.TestCase):
         self.assertFalse(match.allowed)
         self.assertEqual(match.rejection_reason, "excluded_keyword")
 
+    def test_excluded_seniority_uses_metadata_not_full_description(self) -> None:
+        conditions = {**CONDITIONS, "exclude_any": ["director", "senior director"]}
+        allowed = match_job_conditions(job("Operations Coordinator", "This role reports to the Senior Director of Operations."), conditions)
+        self.assertTrue(allowed.allowed)
+        rejected = match_job_conditions(job("Director, Operations"), conditions)
+        self.assertFalse(rejected.allowed)
+        self.assertEqual(rejected.rejection_reason, "excluded_keyword")
+
     def test_rejects_more_than_five_years(self) -> None:
         match = match_job_conditions(job("Operations Lead", "Requires 8+ years of operations experience."), CONDITIONS)
         self.assertFalse(match.allowed)

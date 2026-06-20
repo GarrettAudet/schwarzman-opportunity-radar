@@ -131,7 +131,7 @@ def matched_keywords(text: str, terms: Iterable[object]) -> list[str]:
     return matches
 
 
-def condition_text(job: JobPosting, *, description_chars: int) -> str:
+def condition_metadata_text(job: JobPosting) -> str:
     return " ".join(
         [
             job.title,
@@ -142,9 +142,12 @@ def condition_text(job: JobPosting, *, description_chars: int) -> str:
             job.employment_type,
             job.posted_at,
             " ".join(job.tags),
-            job.description_text[:description_chars],
         ]
     )
+
+
+def condition_text(job: JobPosting, *, description_chars: int) -> str:
+    return " ".join([condition_metadata_text(job), job.description_text[:description_chars]])
 
 
 def group_matches(text: str, group: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -181,8 +184,9 @@ def match_job_conditions(
         return rejected_match(job, reason, posted_at=posted_at, age_days=age_days)
 
     text = condition_text(job, description_chars=description_chars)
+    metadata_text = condition_metadata_text(job)
     max_years = int(conditions.get("max_years_experience", MAX_REQUIRED_YEARS) or MAX_REQUIRED_YEARS)
-    excluded_terms = matched_keywords(text, conditions.get("exclude_any", []) or [])
+    excluded_terms = matched_keywords(metadata_text, conditions.get("exclude_any", []) or [])
     if excluded_terms:
         return rejected_match(job, "excluded_keyword", posted_at=posted_at, age_days=age_days, excluded_terms=excluded_terms)
     if not years_experience_allowed(text, max_required_years=max_years):

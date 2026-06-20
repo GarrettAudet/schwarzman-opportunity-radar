@@ -342,7 +342,7 @@ def run_discovery(
                 conditions_config=conditions_config,
                 state=state,
                 force=force,
-                cache=state_source_cache.get(source_id, {}),
+                cache={} if force else state_source_cache.get(source_id, {}),
                 now=now,
                 fetcher=fetcher,
             )
@@ -352,7 +352,7 @@ def run_discovery(
                 default_cities=default_cities,
                 allow_global_remote=allow_global_remote,
                 conditions_config=conditions_config,
-                cache=state_source_cache.get(source_id, {}),
+                cache={} if force else state_source_cache.get(source_id, {}),
                 now=now,
                 fetcher=fetcher,
             )
