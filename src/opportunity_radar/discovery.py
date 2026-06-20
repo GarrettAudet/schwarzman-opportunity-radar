@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from .adapters import fetch_greenhouse_detail, fetch_greenhouse_index, fetch_source, normalize_job, parse_date
 from .cities import canonical_city_set
-from .conditions import ConditionMatch, conditions_allowed_cities, load_conditions, match_job_conditions, role_group_counts
+from .conditions import ConditionMatch, conditions_allowed_cities, load_conditions, match_job_conditions, recency_allowed, role_group_counts
 from .config import load_runtime_config
 from .criteria import load_criteria
 from .fetch import FetchResponse, fetch_url
@@ -31,6 +31,7 @@ class DiscoveryBatch:
     result: SourceResult
     cache_update: dict[str, str]
     city_candidates: int
+    recent_city_candidates: int
     condition_candidates: int
     condition_matches: dict[str, dict[str, Any]]
 
@@ -124,11 +125,12 @@ def greenhouse_discovery_jobs(
     state: dict[str, Any],
     force: bool,
     cache: dict[str, Any],
+    now: datetime | None,
     fetcher: FetchFn = fetch_url,
 ) -> DiscoveryBatch:
     raw_index, index_result, cache_update = fetch_greenhouse_index(source, cache=cache, fetcher=fetcher)
     if not index_result.ok:
-        return DiscoveryBatch([], [], index_result, cache_update, 0, 0, {})
+        return DiscoveryBatch([], [], index_result, cache_update, 0, 0, 0, {})
 
     max_jobs = int(source.get("max_jobs_per_source", 500))
     max_detail_fetches = int(source.get("max_detail_fetches", source.get("max_jobs_per_source", 25)))
@@ -138,6 +140,7 @@ def greenhouse_discovery_jobs(
     rejected_jobs: list[RejectedJob] = []
     condition_matches: dict[str, dict[str, Any]] = {}
     city_candidates = 0
+    recent_city_candidates = 0
     condition_candidates = 0
     detail_fetches = 0
 
@@ -151,7 +154,10 @@ def greenhouse_discovery_jobs(
         if index_job is None:
             continue
         city_candidates += 1
-        index_match = match_job_conditions(index_job, conditions_config, description_chars=index_description_chars)
+        recent_ok, _posted_at, _age_days = recency_allowed(index_job, conditions_config, now=now)
+        if recent_ok:
+            recent_city_candidates += 1
+        index_match = match_job_conditions(index_job, conditions_config, description_chars=index_description_chars, now=now)
         if not index_match.allowed:
             continue
         condition_candidates += 1
@@ -162,6 +168,7 @@ def greenhouse_discovery_jobs(
         detail_fetches += 1
         try:
             detail_raw = fetch_greenhouse_detail(source, raw.get("external_id"), fetcher=fetcher)
+            detail_raw.setdefault("posted_at", raw.get("posted_at"))
             detail_raw.setdefault("updated_at", raw.get("updated_at"))
             detail_raw.setdefault("location", raw.get("location"))
             detail_raw.setdefault("canonical_url", raw.get("canonical_url"))
@@ -176,7 +183,7 @@ def greenhouse_discovery_jobs(
         if detail_job is None:
             continue
         source_updated_at = job_source_updated_at(detail_raw) or job_source_updated_at(raw)
-        detail_match = match_job_conditions(detail_job, conditions_config, description_chars=detail_description_chars)
+        detail_match = match_job_conditions(detail_job, conditions_config, description_chars=detail_description_chars, now=now)
         detail_match_payload = detail_match.to_dict()
         if not detail_match.allowed:
             rejected_jobs.append((detail_job, source_updated_at, f"conditions_filter:{detail_match.rejection_reason}", detail_match_payload))
@@ -199,7 +206,7 @@ def greenhouse_discovery_jobs(
         etag=index_result.etag,
         last_modified=index_result.last_modified,
     )
-    return DiscoveryBatch(detail_jobs, rejected_jobs, result, cache_update, city_candidates, condition_candidates, condition_matches)
+    return DiscoveryBatch(detail_jobs, rejected_jobs, result, cache_update, city_candidates, recent_city_candidates, condition_candidates, condition_matches)
 
 
 def generic_discovery_jobs(
@@ -209,6 +216,7 @@ def generic_discovery_jobs(
     allow_global_remote: bool,
     conditions_config: dict[str, Any],
     cache: dict[str, Any],
+    now: datetime | None,
     fetcher: FetchFn = fetch_url,
 ) -> DiscoveryBatch:
     jobs, result, cache_update = fetch_source(
@@ -222,9 +230,13 @@ def generic_discovery_jobs(
     filtered: list[JobPosting] = []
     rejected: list[RejectedJob] = []
     condition_matches: dict[str, dict[str, Any]] = {}
+    recent_city_candidates = 0
     condition_candidates = 0
     for job in jobs:
-        match = match_job_conditions(job, conditions_config, description_chars=detail_description_chars)
+        recent_ok, _posted_at, _age_days = recency_allowed(job, conditions_config, now=now)
+        if recent_ok:
+            recent_city_candidates += 1
+        match = match_job_conditions(job, conditions_config, description_chars=detail_description_chars, now=now)
         match_payload = match.to_dict()
         if not match.allowed:
             rejected.append((job, job.posted_at, f"conditions_filter:{match.rejection_reason}", match_payload))
@@ -236,7 +248,7 @@ def generic_discovery_jobs(
             condition_matches[tagged_job.stable_key] = match_payload
         else:
             rejected.append((job, job.posted_at, "hard_filter", match_payload))
-    return DiscoveryBatch(filtered, rejected, result, cache_update, len(jobs), condition_candidates, condition_matches)
+    return DiscoveryBatch(filtered, rejected, result, cache_update, len(jobs), recent_city_candidates, condition_candidates, condition_matches)
 
 
 def rank_candidates(
@@ -305,6 +317,7 @@ def run_discovery(
     condition_matches_by_key: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
     city_candidate_count = 0
+    recent_city_candidate_count = 0
     condition_candidate_count = 0
 
     for source in enabled_sources(sources_config):
@@ -319,6 +332,7 @@ def run_discovery(
                 state=state,
                 force=force,
                 cache=state_source_cache.get(source_id, {}),
+                now=now,
                 fetcher=fetcher,
             )
         else:
@@ -328,6 +342,7 @@ def run_discovery(
                 allow_global_remote=allow_global_remote,
                 conditions_config=conditions_config,
                 cache=state_source_cache.get(source_id, {}),
+                now=now,
                 fetcher=fetcher,
             )
         source_results.append(batch.result)
@@ -335,6 +350,7 @@ def run_discovery(
         rejected_jobs.extend(batch.rejected_jobs)
         condition_matches_by_key.update(batch.condition_matches)
         city_candidate_count += batch.city_candidates
+        recent_city_candidate_count += batch.recent_city_candidates
         condition_candidate_count += batch.condition_candidates
         if batch.cache_update:
             source_cache_updates[source_id] = batch.cache_update
@@ -392,6 +408,7 @@ def run_discovery(
         "finished_at": finished_at,
         "source_results": [item.to_dict() for item in source_results],
         "city_candidate_count": city_candidate_count,
+        "recent_city_candidate_count": recent_city_candidate_count,
         "condition_candidate_count": condition_candidate_count,
         "candidate_count": len(candidates),
         "included_count": len(included),

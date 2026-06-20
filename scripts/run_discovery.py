@@ -35,8 +35,8 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         print(f"Discovery run: {result['run_id']}")
-        print(f"City candidates: {result['city_candidate_count']}")
-        print(f"Condition matches: {result['condition_candidate_count']}")
+        print(f"City candidates: {result['city_candidate_count']} total, {result.get('recent_city_candidate_count', 0)} recent")
+        print(f"Recent condition matches: {result['condition_candidate_count']}")
         print(f"Ranked candidates: {result['candidate_count']}")
         print(f"Included: {result['included_count']}")
         if result.get("role_group_counts"):

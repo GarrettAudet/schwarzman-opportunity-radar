@@ -2,6 +2,7 @@
   "version": 1,
   "locations": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"],
   "allow_global_remote": false,
+  "posted_within_days": 8,
   "max_years_experience": 5,
   "exclude_any": [
     "intern",

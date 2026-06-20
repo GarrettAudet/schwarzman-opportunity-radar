@@ -106,6 +106,8 @@ def main() -> int:
                 ".",
                 "--sources",
                 "tests\\fixtures\\sources.fixture.json",
+                "--conditions",
+                "tests\\fixtures\\conditions.fixture.json",
                 "--deterministic-fallback",
                 "--json",
             ],

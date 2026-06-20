@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,6 +36,7 @@ class FakeGreenhouseFetcher:
                                 "title": "Strategy and Operations Analyst, Frontier AI",
                                 "absolute_url": "https://example.com/jobs/100",
                                 "location": {"name": "San Francisco, CA"},
+                                "first_published": "2026-06-15T10:00:00-04:00",
                                 "updated_at": "2026-06-15T10:00:00-04:00",
                                 "departments": [{"name": "Strategy"}],
                             },
@@ -43,6 +45,7 @@ class FakeGreenhouseFetcher:
                                 "title": "Director of Operations",
                                 "absolute_url": "https://example.com/jobs/200",
                                 "location": {"name": "New York City, NY"},
+                                "first_published": "2026-06-15T11:00:00-04:00",
                                 "updated_at": "2026-06-15T11:00:00-04:00",
                                 "departments": [{"name": "Operations"}],
                             },
@@ -51,6 +54,7 @@ class FakeGreenhouseFetcher:
                                 "title": "Operations Associate",
                                 "absolute_url": "https://example.com/jobs/300",
                                 "location": {"name": "London"},
+                                "first_published": "2026-06-15T12:00:00-04:00",
                                 "updated_at": "2026-06-15T12:00:00-04:00",
                                 "departments": [{"name": "Operations"}],
                             },
@@ -59,6 +63,7 @@ class FakeGreenhouseFetcher:
                                 "title": "Account Executive, Enterprise Sales",
                                 "absolute_url": "https://example.com/jobs/400",
                                 "location": {"name": "New York City, NY"},
+                                "first_published": "2026-05-01T13:00:00-04:00",
                                 "updated_at": "2026-06-15T13:00:00-04:00",
                                 "departments": [{"name": "Sales"}],
                             },
@@ -77,6 +82,7 @@ class FakeGreenhouseFetcher:
                         "title": "Strategy and Operations Analyst, Frontier AI",
                         "absolute_url": "https://example.com/jobs/100",
                         "location": {"name": "San Francisco, CA"},
+                        "first_published": "2026-06-15T10:00:00-04:00",
                         "updated_at": "2026-06-15T10:00:00-04:00",
                         "departments": [{"name": "Strategy"}],
                         "content": "Work on AI strategy, product, and operations. 3 years of experience preferred.",
@@ -94,6 +100,7 @@ class FakeGreenhouseFetcher:
                         "title": "Director of Operations",
                         "absolute_url": "https://example.com/jobs/200",
                         "location": {"name": "New York City, NY"},
+                        "first_published": "2026-06-15T11:00:00-04:00",
                         "updated_at": "2026-06-15T11:00:00-04:00",
                         "departments": [{"name": "Operations"}],
                         "content": "Requires 8+ years of experience leading operations teams.",
@@ -133,6 +140,7 @@ def write_conditions(path: Path) -> None:
             {
                 "version": 1,
                 "locations": ["New York", "San Francisco"],
+                "posted_within_days": 8,
                 "max_years_experience": 5,
                 "exclude_any": ["intern"],
                 "role_groups": [
@@ -165,9 +173,11 @@ class DiscoveryTests(unittest.TestCase):
                     conditions_path=str(conditions_path),
                     deterministic_fallback=True,
                     state_store=store,
+                    now=datetime(2026, 6, 20, tzinfo=timezone.utc),
                     fetcher=fetcher,
                 )
                 self.assertEqual(dry_run["city_candidate_count"], 3)
+                self.assertEqual(dry_run["recent_city_candidate_count"], 2)
                 self.assertEqual(dry_run["condition_candidate_count"], 2)
                 self.assertEqual(dry_run["candidate_count"], 1)
                 self.assertEqual(dry_run["included_count"], 1)
@@ -185,6 +195,7 @@ class DiscoveryTests(unittest.TestCase):
                     conditions_path=str(conditions_path),
                     deterministic_fallback=True,
                     state_store=store,
+                    now=datetime(2026, 6, 20, tzinfo=timezone.utc),
                     fetcher=FakeGreenhouseFetcher(),
                 )
                 self.assertTrue(write_run["state_summary"]["mutated"])

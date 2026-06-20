@@ -5,7 +5,7 @@ This private repo stores runtime configuration and durable send state for the de
 ## Files
 
 - `sources.json` - job source configuration.
-- `conditions.json` - target locations, role groups, exclude terms, and years-of-experience rules.
+- `conditions.json` - posting recency, target locations, role groups, exclude terms, and years-of-experience rules.
 - `opportunity-state.json` - seen jobs, sent weeks, source cache headers, and recent run summaries.
 - `opportunity-criteria.md` - optional private override for the ranking criteria.
 

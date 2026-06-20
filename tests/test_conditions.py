@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from opportunity_radar.conditions import match_job_conditions, role_group_counts
 from opportunity_radar.models import JobPosting
@@ -17,7 +18,7 @@ CONDITIONS = {
 }
 
 
-def job(title: str, description: str = "") -> JobPosting:
+def job(title: str, description: str = "", posted_at: str = "") -> JobPosting:
     return JobPosting(
         source_id="fixture",
         source_name="Fixture",
@@ -27,6 +28,7 @@ def job(title: str, description: str = "") -> JobPosting:
         location_text="New York, NY",
         city="New York",
         canonical_url=f"https://example.com/{title.lower().replace(' ', '-')}",
+        posted_at=posted_at,
         description_text=description,
     )
 
@@ -53,6 +55,22 @@ class ConditionTests(unittest.TestCase):
         match = match_job_conditions(job("Operations Lead", "Requires 8+ years of operations experience."), CONDITIONS)
         self.assertFalse(match.allowed)
         self.assertEqual(match.rejection_reason, "years_experience")
+
+    def test_rejects_stale_postings_when_recency_enabled(self) -> None:
+        now = datetime(2026, 6, 20, tzinfo=timezone.utc)
+        conditions = {**CONDITIONS, "posted_within_days": 8}
+        stale = job("Strategy Associate", posted_at=(now - timedelta(days=14)).isoformat())
+        match = match_job_conditions(stale, conditions, now=now)
+        self.assertFalse(match.allowed)
+        self.assertEqual(match.rejection_reason, "not_recent")
+
+    def test_allows_recent_postings_when_recency_enabled(self) -> None:
+        now = datetime(2026, 6, 20, tzinfo=timezone.utc)
+        conditions = {**CONDITIONS, "posted_within_days": 8}
+        recent = job("Strategy Associate", posted_at=(now - timedelta(days=2)).isoformat())
+        match = match_job_conditions(recent, conditions, now=now)
+        self.assertTrue(match.allowed)
+        self.assertLess(match.posting_age_days or 0, 8)
 
     def test_role_group_counts(self) -> None:
         counts = role_group_counts([

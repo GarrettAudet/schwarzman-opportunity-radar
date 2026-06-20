@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "locations": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"],
+  "allow_global_remote": false,
+  "max_years_experience": 5,
+  "exclude_any": ["intern", "internship", "student program", "director", "vp", "head of", "principal", "10+ years", "9+ years", "8+ years", "7+ years", "6+ years"],
+  "role_groups": [
+    {
+      "id": "strategy_operations",
+      "label": "Strategy / Operations",
+      "include_any": ["strategy", "strategic", "operations", "business operations", "bizops", "chief of staff", "special projects", "operator", "ops"]
+    },
+    {
+      "id": "policy_ai",
+      "label": "Policy / AI Governance",
+      "include_any": ["policy", "public policy", "ai governance", "frontier ai", "ai safety"]
+    },
+    {
+      "id": "investing_venture",
+      "label": "Investing / Venture",
+      "include_any": ["venture", "investment", "investor", "investing", "portfolio"]
+    },
+    {
+      "id": "product_growth_partnerships",
+      "label": "Product / Growth / Partnerships",
+      "include_any": ["product", "growth", "partnership", "partnerships", "business development", "go-to-market", "gtm"]
+    },
+    {
+      "id": "frontier_tech_startups",
+      "label": "Frontier Tech / Startups",
+      "include_any": ["startup", "startups", "founder", "ai", "artificial intelligence", "machine learning", "climate", "fintech", "crypto", "infrastructure"]
+    }
+  ]
+}
