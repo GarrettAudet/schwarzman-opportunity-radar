@@ -6,7 +6,7 @@ Prefer roles with one or more high-signal traits:
 
 - Hot startup, fast-growing company, or unusually strong founder/investor signal.
 - Big brand, elite institution, respected global platform, or iconic technology company.
-- Strategy, operations, investing, product, AI, policy, public impact, frontier technology, China/global affairs, climate, infrastructure, or cross-border business angle.
+- Strategy, operations, legal/regulatory, investing, product, AI, policy, public impact, frontier technology, China/global affairs, climate, infrastructure, or cross-border business angle.
 - Meaningful ownership, access to senior decision-making, unusual learning curve, or clear leadership trajectory.
 - Good fit for globally minded early-career operators and analysts, including rotational programs and fellowships.
 - Explicit years-of-experience requirements should be 0-5 years. Exclude roles requiring more than 5 years.

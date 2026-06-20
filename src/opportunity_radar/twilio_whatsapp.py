@@ -136,13 +136,21 @@ def send_template(
     from_address: str = "",
 ) -> list[dict[str, Any]]:
     account_sid, auth_token = twilio_auth_credentials()
-    data = {
-        "To": strip_whatsapp_prefix(to_address),
-        "ContentSid": content_sid,
-        "ContentVariables": json.dumps(content_variables, ensure_ascii=False),
-    }
-    if messaging_service_sid:
-        data["MessagingServiceSid"] = messaging_service_sid
-    else:
-        data["From"] = twilio_from_address(from_address)
-    return [send_message_payload(account_sid, auth_token, data)]
+    original_body = str(content_variables.get("1", ""))
+    chunks = split_message(original_body) if original_body else [""]
+    responses = []
+    for chunk in chunks:
+        variables = dict(content_variables)
+        if original_body:
+            variables["1"] = chunk
+        data = {
+            "To": strip_whatsapp_prefix(to_address),
+            "ContentSid": content_sid,
+            "ContentVariables": json.dumps(variables, ensure_ascii=False),
+        }
+        if messaging_service_sid:
+            data["MessagingServiceSid"] = messaging_service_sid
+        else:
+            data["From"] = twilio_from_address(from_address)
+        responses.append(send_message_payload(account_sid, auth_token, data))
+    return responses

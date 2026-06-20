@@ -1,5 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import json
 import os
 import unittest
 from unittest.mock import patch
@@ -87,6 +88,21 @@ class RankerSenderTests(unittest.TestCase):
         self.assertEqual(payload["To"], "whatsapp:+15552223333")
         self.assertEqual(payload["MessagingServiceSid"], "MG123")
         self.assertNotIn("From", payload)
+
+    @patch("opportunity_radar.twilio_whatsapp.send_message_payload")
+    def test_twilio_template_payload_splits_long_digest(self, send_message_payload) -> None:  # type: ignore[no-untyped-def]
+        send_message_payload.side_effect = [{"sid": "SM1"}, {"sid": "SM2"}]
+        env = {"TWILIO_ACCOUNT_SID": "AC123", "TWILIO_AUTH_TOKEN": "token"}
+        long_digest = "A" * 1700
+        with patch.dict(os.environ, env, clear=True):
+            result = TwilioWhatsAppSender(content_sid="HX123", messaging_service_sid="MG123").send("+15552223333", long_digest)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.message_ids, ["SM1", "SM2"])
+        self.assertEqual(send_message_payload.call_count, 2)
+        first_payload = send_message_payload.call_args_list[0].args[2]
+        second_payload = send_message_payload.call_args_list[1].args[2]
+        self.assertLessEqual(len(json.loads(first_payload["ContentVariables"])["1"]), 1500)
+        self.assertLessEqual(len(json.loads(second_payload["ContentVariables"])["1"]), 1500)
 
     def test_twilio_preflight_reports_missing_send_config(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

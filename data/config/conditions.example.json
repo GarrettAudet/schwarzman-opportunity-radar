@@ -61,6 +61,20 @@
       ]
     },
     {
+      "id": "legal_regulatory",
+      "label": "Legal / Regulatory",
+      "include_any": [
+        "legal",
+        "legal operations",
+        "legal engineer",
+        "in-house",
+        "regulatory",
+        "compliance",
+        "counsel",
+        "policy counsel"
+      ]
+    },
+    {
       "id": "policy_ai",
       "label": "Policy / AI Governance",
       "include_any": [
