@@ -21,7 +21,9 @@ services:
       - key: OPPORTUNITY_SEND_HOUR
         value: "9"
       - key: OPPORTUNITY_MAX_JOBS
-        value: "10"
+        value: "30"
+      - key: OPPORTUNITY_MAX_JOBS_PER_COMPANY
+        value: "2"
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_RANK_MODEL

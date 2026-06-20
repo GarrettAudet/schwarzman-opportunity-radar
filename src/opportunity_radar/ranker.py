@@ -28,15 +28,98 @@ COOL_TERMS = {
     "founder": 14,
     "startup": 12,
     "product": 10,
-    "operations": 12,
+    "operations": 14,
     "operator": 10,
     "ops": 8,
+    "growth": 12,
+    "partnership": 12,
+    "partnerships": 12,
+    "business development": 12,
     "climate": 10,
     "fintech": 10,
     "crypto": 8,
     "frontier": 12,
     "leadership": 10,
 }
+
+LOW_SIGNAL_TITLE_TERMS = {
+    "administrative": 35,
+    "executive assistant": 35,
+    "office manager": 30,
+    "recruiter": 32,
+    "recruiting": 32,
+    "talent": 26,
+    "human resources": 30,
+    "hrbp": 30,
+    "customer success": 28,
+    "account manager": 26,
+    "sales engineer": 24,
+    "brand designer": 30,
+    "designer": 24,
+    "digital marketing": 24,
+    "crm manager": 24,
+    "member services": 24,
+    "engineering manager": 34,
+    "account executive": 30,
+    "sales development": 30,
+    "account associate": 26,
+    "marketer": 24,
+    "content editor": 24,
+    "storytelling": 24,
+    "contract": 20,
+    "customer engineer": 24,
+    "solutions engineer": 24,
+}
+
+SENIOR_TITLE_TERMS = {
+    "senior": 42,
+    "staff engineer": 42,
+    "staff ai engineer": 42,
+    "staff ml engineer": 42,
+    "staff machine learning engineer": 42,
+    "principal": 42,
+    "director": 42,
+    "vice president": 42,
+    "vp": 42,
+    "head of": 42,
+    "lead": 28,
+}
+
+
+def keyword_present(term: str, text: str) -> bool:
+    return bool(re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text))
+
+
+def deterministic_signal(job: JobPosting) -> tuple[float, list[str]]:
+    role_haystack = " ".join([job.title, job.department, job.employment_type, " ".join(job.tags)]).lower()
+    context_haystack = " ".join([job.company, job.description_text[:900]]).lower()
+    company_haystack = job.company.lower()
+    title_haystack = job.title.lower()
+    score = 45.0
+    reasons: list[str] = []
+    for term, points in COOL_TERMS.items():
+        if keyword_present(term, role_haystack):
+            score += points
+            reasons.append(term)
+        elif keyword_present(term, context_haystack):
+            score += max(4, points * 0.4)
+            reasons.append(term)
+    for term, points in BRAND_TERMS.items():
+        if term in company_haystack or term in context_haystack:
+            score += points
+            reasons.append(term)
+    for term, penalty in LOW_SIGNAL_TITLE_TERMS.items():
+        if keyword_present(term, title_haystack):
+            score -= penalty
+            reasons.append(f"low-signal:{term}")
+    for term, penalty in SENIOR_TITLE_TERMS.items():
+        if keyword_present(term, title_haystack):
+            score -= penalty
+            reasons.append(f"seniority:{term}")
+    if job.city in {"Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"}:
+        score += 8
+    return score, reasons
+
 
 BRAND_TERMS = {
     "openai": 24,
@@ -69,7 +152,8 @@ def rank_with_llm(
     if not jobs:
         return []
     client = client or OpenRouterClient()
-    payload = [job.compact_for_llm() for job in jobs[:60]]
+    candidate_jobs = sorted(jobs, key=lambda item: deterministic_signal(item)[0], reverse=True)[:60]
+    payload = [job.compact_for_llm() for job in candidate_jobs]
     prompt = f"""
 Return JSON only.
 
@@ -140,19 +224,7 @@ Include only jobs that are genuinely high-signal. Prefer fewer strong roles over
 def rank_deterministically(jobs: list[JobPosting], *, max_selected: int) -> list[RankedOpportunity]:
     ranked: list[RankedOpportunity] = []
     for job in jobs:
-        haystack = " ".join([job.company, job.title, job.department, " ".join(job.tags), job.description_text[:1200]]).lower()
-        score = 45.0
-        reasons = []
-        for term, points in COOL_TERMS.items():
-            if re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", haystack):
-                score += points
-                reasons.append(term)
-        for term, points in BRAND_TERMS.items():
-            if term in haystack:
-                score += points
-                reasons.append(term)
-        if job.city in {"Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"}:
-            score += 8
+        score, reasons = deterministic_signal(job)
         include = score >= 70
         why = f"{job.company} role in {job.city}: {job.title}"
         if reasons:

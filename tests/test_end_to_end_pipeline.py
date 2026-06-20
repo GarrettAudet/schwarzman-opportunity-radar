@@ -71,7 +71,7 @@ class EndToEndPipelineTests(unittest.TestCase):
         env = {
             "OPENROUTER_API_KEY": "",
             "OPPORTUNITY_RECIPIENTS": "whatsapp:+15552223333",
-            "OPPORTUNITY_MAX_JOBS": "10",
+            "OPPORTUNITY_MAX_JOBS": "30",
             "TWILIO_ACCOUNT_SID": "AC123",
             "TWILIO_AUTH_TOKEN": "token",
             "TWILIO_WHATSAPP_FROM": "whatsapp:+15550001111",

@@ -44,10 +44,30 @@ def apply_source_filters(jobs: list[JobPosting], source_by_id: dict[str, dict[st
     return filtered
 
 
+def diversify_ranked(
+    ranked: list[RankedOpportunity],
+    *,
+    max_jobs: int,
+    max_jobs_per_company: int,
+) -> list[RankedOpportunity]:
+    counts: dict[str, int] = {}
+    selected: list[RankedOpportunity] = []
+    for item in ranked:
+        company_key = item.job.company.strip().lower() or item.job.source_id
+        if counts.get(company_key, 0) >= max_jobs_per_company:
+            continue
+        selected.append(item)
+        counts[company_key] = counts.get(company_key, 0) + 1
+        if len(selected) >= max_jobs:
+            break
+    return [RankedOpportunity(**{**item.__dict__, "rank": index}) for index, item in enumerate(selected, start=1)]
+
+
 def ranked_from_evaluated_state(
     state: dict[str, Any],
     *,
     max_jobs: int,
+    max_jobs_per_company: int,
     include_seen: bool = False,
 ) -> tuple[list[RankedOpportunity], int]:
     sent_jobs = state.get("sent_jobs", {})
@@ -75,8 +95,8 @@ def ranked_from_evaluated_state(
             )
         )
     ranked.sort(key=lambda item: (item.score, item.job.fetched_at), reverse=True)
-    selected = ranked[:max_jobs]
-    return [RankedOpportunity(**{**item.__dict__, "rank": index}) for index, item in enumerate(selected, start=1)], len(ranked)
+    selected = diversify_ranked(ranked, max_jobs=max_jobs, max_jobs_per_company=max_jobs_per_company)
+    return selected, len(ranked)
 
 
 def update_state_after_send(state: dict[str, Any], *, week_key: str, selected: list[RankedOpportunity], run_payload: dict[str, Any]) -> dict[str, Any]:
@@ -207,6 +227,7 @@ def run_digest(
         selected, candidate_count = ranked_from_evaluated_state(
             state,
             max_jobs=config.max_jobs,
+            max_jobs_per_company=config.max_jobs_per_company,
             include_seen=include_seen or force,
         )
         if not state.get("evaluated_jobs"):
@@ -296,16 +317,17 @@ def run_digest(
             candidates,
             criteria_text=criteria_text,
             model=config.rank_model,
-            max_selected=config.max_jobs,
+            max_selected=config.max_jobs * max(1, config.max_jobs_per_company),
         )
     except Exception as exc:
         if allow_fallback:
             errors.append(f"ranker_fallback:{type(exc).__name__}")
-            selected = rank_deterministically(candidates, max_selected=config.max_jobs)
+            selected = rank_deterministically(candidates, max_selected=config.max_jobs * max(1, config.max_jobs_per_company))
         else:
             errors.append(f"ranker_failed:{type(exc).__name__}")
             selected = []
 
+    selected = diversify_ranked(selected, max_jobs=config.max_jobs, max_jobs_per_company=config.max_jobs_per_company)
     digest_text = format_digest(selected, week_key=week_key, errors=errors)
     recipient_results = send_selected_digest(
         config=config,

@@ -78,6 +78,22 @@ class ConditionTests(unittest.TestCase):
         self.assertEqual(match.rejection_reason, "excluded_full_text_keyword")
         self.assertIn("retail store", match.excluded_terms)
 
+    def test_excludes_title_keywords_before_role_matching(self) -> None:
+        conditions = {**CONDITIONS, "exclude_title_any": ["recruiter", "senior"]}
+        match = match_job_conditions(job("Senior Operations Recruiter"), conditions)
+        self.assertFalse(match.allowed)
+        self.assertEqual(match.rejection_reason, "excluded_title_keyword")
+
+    def test_role_description_chars_can_ignore_company_blurbs(self) -> None:
+        conditions = {**CONDITIONS, "role_description_chars": 0}
+        description = "We are an AI company with product strategy and venture backing."
+        rejected = match_job_conditions(job("Brand Designer", description), conditions)
+        self.assertFalse(rejected.allowed)
+        self.assertEqual(rejected.rejection_reason, "no_role_group")
+
+        allowed = match_job_conditions(job("Strategy Associate", description), conditions)
+        self.assertTrue(allowed.allowed)
+
     def test_rejects_stale_postings_when_recency_enabled(self) -> None:
         now = datetime(2026, 6, 20, tzinfo=timezone.utc)
         conditions = {**CONDITIONS, "posted_within_days": 8}

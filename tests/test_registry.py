@@ -11,8 +11,11 @@ from opportunity_radar.registry import (
     discover_common_crawl_refs,
     discover_registry_refs,
     merge_board_registry,
+    parse_ashby_job_url,
+    parse_ats_job_url,
     parse_cdx_records,
     parse_greenhouse_job_url,
+    parse_lever_job_url,
     record_board_poll_result,
     refs_from_payload,
     stable_poll_bucket,
@@ -43,8 +46,25 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(regional.board_token, "dawnaerospace")
         self.assertEqual(regional.job_id, "4001647201")
 
-    def test_rejects_non_greenhouse_and_excluded_domains(self) -> None:
-        self.assertIsNone(parse_greenhouse_job_url("https://www.linkedin.com/jobs/view/123"))
+    def test_parses_lever_and_ashby_job_urls(self) -> None:
+        lever = parse_lever_job_url("https://jobs.lever.co/openai/abc_123")
+        self.assertIsNotNone(lever)
+        self.assertEqual(lever.ats, "lever")
+        self.assertEqual(lever.board_token, "openai")
+        self.assertEqual(lever.job_id, "abc_123")
+
+        ashby = parse_ashby_job_url("https://jobs.ashbyhq.com/anthropic/77a7f0a1-ops")
+        self.assertIsNotNone(ashby)
+        self.assertEqual(ashby.ats, "ashby")
+        self.assertEqual(ashby.board_token, "anthropic")
+        self.assertEqual(ashby.job_id, "77a7f0a1-ops")
+
+        application = parse_ashby_job_url("https://jobs.ashbyhq.com/anthropic/application?jobId=apply_123")
+        self.assertIsNotNone(application)
+        self.assertEqual(application.job_id, "apply_123")
+
+    def test_rejects_non_supported_ats_and_excluded_domains(self) -> None:
+        self.assertIsNone(parse_ats_job_url("https://www.linkedin.com/jobs/view/123"))
         self.assertIsNone(parse_greenhouse_job_url("https://example.com/openai/jobs/123"))
         self.assertIsNone(parse_greenhouse_job_url("https://job-boards.greenhouse.io/openai/about"))
 
@@ -104,6 +124,28 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(sources[0]["adapter"], "greenhouse")
         self.assertEqual(sources[0]["board_token"], "coolco")
         self.assertEqual(sources[0]["max_detail_fetches"], 7)
+
+    def test_active_registry_sources_includes_supported_ats(self) -> None:
+        state = {
+            "board_registry": {
+                "greenhouse:coolco": {"ats": "greenhouse", "board_token": "coolco", "active": True, "last_polled": ""},
+                "lever:leverco": {"ats": "lever", "board_token": "leverco", "active": True, "last_polled": ""},
+                "ashby:ashbyco": {"ats": "ashby", "board_token": "ashbyco", "active": True, "last_polled": ""},
+                "other:unknown": {"ats": "unknown", "board_token": "unknown", "active": True, "last_polled": ""},
+            }
+        }
+        sources = active_registry_sources(
+            state,
+            {"enabled": True, "max_boards_per_daily_run": 10},
+            default_cities={"New York", "Sydney"},
+            allow_global_remote=False,
+        )
+        by_adapter = {source["adapter"]: source for source in sources}
+        self.assertEqual(set(by_adapter), {"greenhouse", "lever", "ashby"})
+        self.assertEqual(by_adapter["lever"]["id"], "registry-lever-leverco")
+        self.assertEqual(by_adapter["ashby"]["id"], "registry-ashby-ashbyco")
+        self.assertNotIn("max_detail_fetches", by_adapter["lever"])
+        self.assertIn("max_detail_fetches", by_adapter["greenhouse"])
 
     def test_active_registry_sources_spreads_unpolled_boards_by_hash(self) -> None:
         board_tokens = ["alpha", "bravo", "charlie", "delta", "echo"]
@@ -166,7 +208,7 @@ class RegistryTests(unittest.TestCase):
             return FetchResponse(
                 200,
                 url,
-                '{"items":[{"link":"https://job-boards.greenhouse.io/coolco/jobs/123"},{"link":"https://www.linkedin.com/jobs/view/456"}]}',
+                '{"items":[{"link":"https://job-boards.greenhouse.io/coolco/jobs/123"},{"link":"https://jobs.lever.co/leverco/job_456"},{"link":"https://jobs.ashbyhq.com/ashbyco/job_789"},{"link":"https://www.linkedin.com/jobs/view/456"}]}',
                 {},
             )
 
@@ -181,10 +223,10 @@ class RegistryTests(unittest.TestCase):
             },
         }
         result = discover_registry_refs(ROOT, config, {}, fetcher=fetcher)
-        self.assertEqual(result["raw_url_count"], 2)
-        self.assertEqual(result["accepted_ref_count"], 1)
+        self.assertEqual(result["raw_url_count"], 4)
+        self.assertEqual(result["accepted_ref_count"], 3)
         self.assertEqual(result["rejected_url_count"], 1)
-        self.assertEqual(result["refs"][0]["board_token"], "coolco")
+        self.assertEqual({ref["ats"] for ref in result["refs"]}, {"greenhouse", "lever", "ashby"})
         self.assertIn("customsearch/v1", requested_urls[0])
 
     def test_google_cse_registry_requires_credentials(self) -> None:

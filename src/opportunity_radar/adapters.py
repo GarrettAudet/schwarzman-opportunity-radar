@@ -161,6 +161,38 @@ def greenhouse_detail_url(source: dict[str, Any], job_id: object) -> str:
     return f"https://boards-api.greenhouse.io/v1/boards/{greenhouse_board_token(source)}/jobs/{job_id}"
 
 
+def lever_board_token(source: dict[str, Any]) -> str:
+    explicit = clean_text(source.get("board_token"), max_chars=200)
+    if explicit:
+        return explicit
+    url = clean_text(source.get("url"), max_chars=1200)
+    parsed = urlparse(url)
+    parts = [part for part in parsed.path.split("/") if part]
+    if parsed.netloc == "jobs.lever.co" and parts:
+        return parts[0]
+    raise ValueError("lever sources require board_token or jobs.lever.co url")
+
+
+def lever_index_url(source: dict[str, Any]) -> str:
+    return f"https://api.lever.co/v0/postings/{lever_board_token(source)}?mode=json"
+
+
+def ashby_board_token(source: dict[str, Any]) -> str:
+    explicit = clean_text(source.get("board_token"), max_chars=200)
+    if explicit:
+        return explicit
+    url = clean_text(source.get("url"), max_chars=1200)
+    parsed = urlparse(url)
+    parts = [part for part in parsed.path.split("/") if part]
+    if parsed.netloc == "jobs.ashbyhq.com" and parts:
+        return parts[0]
+    raise ValueError("ashby sources require board_token or jobs.ashbyhq.com url")
+
+
+def ashby_index_url(source: dict[str, Any]) -> str:
+    return f"https://api.ashbyhq.com/posting-api/job-board/{ashby_board_token(source)}"
+
+
 def fetch_greenhouse_index(
     source: dict[str, Any],
     *,
@@ -333,6 +365,10 @@ def fetch_source(
             url = str(source.get("url", "")).strip()
             if not url and adapter == "greenhouse":
                 url = greenhouse_index_url(source)
+            elif not url and adapter == "lever":
+                url = lever_index_url(source)
+            elif not url and adapter == "ashby":
+                url = ashby_index_url(source)
             if not url:
                 raise ValueError("source url is required")
             response = fetcher(url, headers=conditional_headers(cache or {}), timeout=int(source.get("timeout", 30)))

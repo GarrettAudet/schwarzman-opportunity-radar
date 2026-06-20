@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from opportunity_radar.models import RecipientResult
-from opportunity_radar.pipeline import run_digest
+from opportunity_radar.models import JobPosting, RankedOpportunity, RecipientResult
+from opportunity_radar.pipeline import diversify_ranked, run_digest
 from opportunity_radar.state import FileJsonStore
 
 
@@ -129,6 +129,26 @@ class PipelineTests(unittest.TestCase):
                 self.assertIn("TWILIO_WHATSAPP_FROM is not set", result.errors)
                 self.assertEqual(result.recipient_results, [])
                 self.assertFalse(result.state_summary["mutated"])
+
+
+class PipelineDiversityTests(unittest.TestCase):
+    def test_diversify_ranked_caps_company_repeats(self) -> None:
+        ranked = []
+        for index, company in enumerate(["Ampersand", "Ampersand", "Ampersand", "Atlas", "Braintrust"], start=1):
+            job = JobPosting(
+                source_id="fixture",
+                source_name="Fixture",
+                external_id=str(index),
+                title=f"Strategy Role {index}",
+                company=company,
+                location_text="New York",
+                city="New York",
+                canonical_url=f"https://example.com/{index}",
+            )
+            ranked.append(RankedOpportunity(job, 100 - index, True, "", ""))
+        selected = diversify_ranked(ranked, max_jobs=4, max_jobs_per_company=2)
+        self.assertEqual([item.job.company for item in selected], ["Ampersand", "Ampersand", "Atlas", "Braintrust"])
+        self.assertEqual([item.rank for item in selected], [1, 2, 3, 4])
 
 
 if __name__ == "__main__":

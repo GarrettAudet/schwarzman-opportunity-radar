@@ -8,7 +8,7 @@ import secrets
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 from .cities import ALIASES
 from .conditions import conditions_allowed_cities, load_conditions
@@ -20,7 +20,15 @@ from .state import JsonStore, load_json_from_github, state_store_from_env
 
 FetchFn = Callable[..., FetchResponse]
 DEFAULT_COMMON_CRAWL_INDEX_LIST_URL = "https://index.commoncrawl.org/collinfo.json"
-DEFAULT_GREENHOUSE_HOSTS = ["job-boards.greenhouse.io", "boards.greenhouse.io", "*.greenhouse.io/*/jobs/*"]
+DEFAULT_ATS_HOSTS = [
+    "job-boards.greenhouse.io",
+    "boards.greenhouse.io",
+    "*.greenhouse.io/*/jobs/*",
+    "jobs.lever.co/*",
+    "jobs.ashbyhq.com/*",
+]
+DEFAULT_GREENHOUSE_HOSTS = DEFAULT_ATS_HOSTS
+SUPPORTED_REGISTRY_ATS = {"greenhouse", "lever", "ashby"}
 DEFAULT_EXCLUDE_DOMAINS = ["linkedin.com", "www.linkedin.com", "m.linkedin.com"]
 DEFAULT_COMMON_CRAWL_INDEX_COUNT = 4
 DEFAULT_MAX_REGISTRY_REFRESH_URLS = 5000
@@ -124,6 +132,62 @@ def parse_greenhouse_job_url(url: str, *, excluded_domains: list[str] | None = N
         board_token=board_token.lower(),
         job_id=job_id,
         url=url,
+    )
+
+
+def valid_registry_token(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]+", value or ""))
+
+
+def parse_lever_job_url(url: str, *, excluded_domains: list[str] | None = None) -> DiscoveredPostingRef | None:
+    excluded = excluded_domains or DEFAULT_EXCLUDE_DOMAINS
+    parsed = urlparse(str(url).strip())
+    host = normalized_host(parsed.netloc)
+    if host != "jobs.lever.co" or domain_excluded(host, excluded):
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return None
+    board_token = parts[0]
+    job_id = parts[1]
+    if not valid_registry_token(board_token) or not valid_registry_token(job_id):
+        return None
+    return DiscoveredPostingRef(
+        ats="lever",
+        board_token=board_token.lower(),
+        job_id=job_id,
+        url=url,
+    )
+
+
+def parse_ashby_job_url(url: str, *, excluded_domains: list[str] | None = None) -> DiscoveredPostingRef | None:
+    excluded = excluded_domains or DEFAULT_EXCLUDE_DOMAINS
+    parsed = urlparse(str(url).strip())
+    host = normalized_host(parsed.netloc)
+    if host != "jobs.ashbyhq.com" or domain_excluded(host, excluded):
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    board_token = parts[0] if parts else ""
+    job_id = ""
+    if len(parts) >= 2 and parts[1].lower() not in {"application", "department", "teams"}:
+        job_id = parts[1]
+    elif len(parts) >= 2 and parts[1].lower() == "application":
+        job_id = (parse_qs(parsed.query).get("jobId") or [""])[0]
+    if not valid_registry_token(board_token) or not valid_registry_token(job_id):
+        return None
+    return DiscoveredPostingRef(
+        ats="ashby",
+        board_token=board_token.lower(),
+        job_id=job_id,
+        url=url,
+    )
+
+
+def parse_ats_job_url(url: str, *, excluded_domains: list[str] | None = None) -> DiscoveredPostingRef | None:
+    return (
+        parse_greenhouse_job_url(url, excluded_domains=excluded_domains)
+        or parse_lever_job_url(url, excluded_domains=excluded_domains)
+        or parse_ashby_job_url(url, excluded_domains=excluded_domains)
     )
 
 
@@ -282,7 +346,21 @@ def build_google_cse_queries(config: dict[str, Any], conditions: dict[str, Any])
     if isinstance(explicit, str) and explicit.strip():
         return [explicit.strip()]
 
-    sites = [str(site).strip() for site in google_config.get("sites", ["job-boards.greenhouse.io", "boards.greenhouse.io", "job-boards.eu.greenhouse.io", "job-boards.anz.greenhouse.io"]) if str(site).strip()]
+    sites = [
+        str(site).strip()
+        for site in google_config.get(
+            "sites",
+            [
+                "job-boards.greenhouse.io",
+                "boards.greenhouse.io",
+                "job-boards.eu.greenhouse.io",
+                "job-boards.anz.greenhouse.io",
+                "jobs.lever.co",
+                "jobs.ashbyhq.com",
+            ],
+        )
+        if str(site).strip()
+    ]
     site_expr = google_or_expression([f"site:{site}" for site in sites])
     if not site_expr:
         return []
@@ -370,7 +448,7 @@ def discover_google_cse_refs(root: Path, config: dict[str, Any], conditions: dic
     refs_by_key: dict[str, DiscoveredPostingRef] = {}
     rejected = 0
     for url in raw_urls[:max_results]:
-        ref = parse_greenhouse_job_url(url, excluded_domains=excluded_domains)
+        ref = parse_ats_job_url(url, excluded_domains=excluded_domains)
         if ref is None:
             rejected += 1
             continue
@@ -439,7 +517,7 @@ def discover_common_crawl_refs(root: Path, config: dict[str, Any], *, fetcher: F
         except Exception as exc:
             errors.append(f"fixture_load_failed:{type(exc).__name__}")
     else:
-        ats_hosts = [str(item).strip() for item in config.get("ats_hosts", DEFAULT_GREENHOUSE_HOSTS) if str(item).strip()]
+        ats_hosts = [str(item).strip() for item in config.get("ats_hosts", DEFAULT_ATS_HOSTS) if str(item).strip()]
         indexes, index_errors = common_crawl_indexes(config, fetcher=fetcher)
         errors.extend(index_errors)
         remaining = max_urls
@@ -464,7 +542,7 @@ def discover_common_crawl_refs(root: Path, config: dict[str, Any], *, fetcher: F
     rejected = 0
     for record in records[:max_urls]:
         url = str(record.get("url") or "").strip()
-        ref = parse_greenhouse_job_url(url, excluded_domains=excluded_domains)
+        ref = parse_ats_job_url(url, excluded_domains=excluded_domains)
         if ref is None:
             rejected += 1
             continue
@@ -558,7 +636,8 @@ def active_registry_sources(state: dict[str, Any], discovery_config: dict[str, A
     for key, entry in registry.items():
         if not isinstance(entry, dict):
             continue
-        if str(entry.get("ats", "")).lower() != "greenhouse":
+        ats = str(entry.get("ats", "")).lower()
+        if ats not in SUPPORTED_REGISTRY_ATS:
             continue
         if not bool(entry.get("active", True)):
             continue
@@ -572,22 +651,24 @@ def active_registry_sources(state: dict[str, Any], discovery_config: dict[str, A
     cities = sorted(default_cities)
     for key, entry in entries[:max_boards]:
         token = str(entry.get("board_token", "")).strip()
+        ats = str(entry.get("ats", "")).lower()
         company = display_company_from_token(token)
-        sources.append(
-            {
-                "id": f"registry-greenhouse-{token}",
-                "name": f"Discovered Greenhouse: {company}",
-                "adapter": "greenhouse",
-                "enabled": True,
-                "company": company,
-                "board_token": token,
-                "cities": cities,
-                "allow_global_remote": allow_global_remote,
-                "max_jobs_per_source": int(discovery_config.get("max_jobs_per_source", 500)),
-                "max_detail_fetches": int(discovery_config.get("max_detail_fetches_per_board", 12)),
-                "_registry_key": key,
-            }
-        )
+        ats_label = ats.capitalize()
+        source = {
+            "id": f"registry-{ats}-{token}",
+            "name": f"Discovered {ats_label}: {company}",
+            "adapter": ats,
+            "enabled": True,
+            "company": company,
+            "board_token": token,
+            "cities": cities,
+            "allow_global_remote": allow_global_remote,
+            "max_jobs_per_source": int(discovery_config.get("max_jobs_per_source", 500)),
+            "_registry_key": key,
+        }
+        if ats == "greenhouse":
+            source["max_detail_fetches"] = int(discovery_config.get("max_detail_fetches_per_board", 12))
+        sources.append(source)
     return sources
 
 

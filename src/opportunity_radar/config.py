@@ -14,7 +14,8 @@ DEFAULT_RANK_MODEL = "openai/gpt-4.1-mini"
 DEFAULT_TIMEZONE = "America/Edmonton"
 DEFAULT_SEND_DOW = "MON"
 DEFAULT_SEND_HOUR = 9
-DEFAULT_MAX_JOBS = 10
+DEFAULT_MAX_JOBS = 30
+DEFAULT_MAX_JOBS_PER_COMPANY = 2
 
 
 def load_env(root: Path) -> None:
@@ -54,6 +55,7 @@ class RuntimeConfig:
     send_hour: int
     recipients: list[str]
     max_jobs: int
+    max_jobs_per_company: int
     allowed_cities: set[str]
     allow_global_remote: bool
     deterministic_fallback: bool
@@ -73,6 +75,7 @@ def load_runtime_config(root: Path) -> RuntimeConfig:
         send_hour=int(os.environ.get("OPPORTUNITY_SEND_HOUR", str(DEFAULT_SEND_HOUR))),
         recipients=env_csv("OPPORTUNITY_RECIPIENTS"),
         max_jobs=max(1, int(os.environ.get("OPPORTUNITY_MAX_JOBS", str(DEFAULT_MAX_JOBS)))),
+        max_jobs_per_company=max(1, int(os.environ.get("OPPORTUNITY_MAX_JOBS_PER_COMPANY", str(DEFAULT_MAX_JOBS_PER_COMPANY)))),
         allowed_cities=cities,
         allow_global_remote=env_bool("OPPORTUNITY_ALLOW_GLOBAL_REMOTE", False),
         deterministic_fallback=env_bool("OPPORTUNITY_DETERMINISTIC_FALLBACK", False),

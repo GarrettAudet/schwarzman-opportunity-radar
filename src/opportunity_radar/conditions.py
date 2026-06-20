@@ -154,6 +154,18 @@ def full_condition_text(job: JobPosting) -> str:
     return " ".join([condition_metadata_text(job), job.description_text])
 
 
+def condition_role_text(job: JobPosting, *, description_chars: int) -> str:
+    return " ".join(
+        [
+            job.title,
+            job.department,
+            job.employment_type,
+            " ".join(job.tags),
+            job.description_text[:description_chars] if description_chars > 0 else "",
+        ]
+    )
+
+
 def group_matches(text: str, group: dict[str, Any]) -> tuple[bool, list[str]]:
     include_any = list(group.get("include_any", []) or [])
     include_all = list(group.get("include_all", []) or [])
@@ -187,10 +199,14 @@ def match_job_conditions(
         reason = "missing_posted_date" if age_days is None else "not_recent"
         return rejected_match(job, reason, posted_at=posted_at, age_days=age_days)
 
-    text = condition_text(job, description_chars=description_chars)
     metadata_text = condition_metadata_text(job)
     full_text = full_condition_text(job)
+    role_description_chars = int(conditions.get("role_description_chars", description_chars) or 0)
+    role_text = condition_role_text(job, description_chars=role_description_chars)
     max_years = int(conditions.get("max_years_experience", MAX_REQUIRED_YEARS) or MAX_REQUIRED_YEARS)
+    title_excluded_terms = matched_keywords(job.title, conditions.get("exclude_title_any", []) or [])
+    if title_excluded_terms:
+        return rejected_match(job, "excluded_title_keyword", posted_at=posted_at, age_days=age_days, excluded_terms=title_excluded_terms)
     excluded_terms = matched_keywords(metadata_text, conditions.get("exclude_any", []) or [])
     if excluded_terms:
         return rejected_match(job, "excluded_keyword", posted_at=posted_at, age_days=age_days, excluded_terms=excluded_terms)
@@ -214,7 +230,7 @@ def match_job_conditions(
     matched_terms: list[str] = []
     role_groups = [group for group in conditions.get("role_groups", []) if isinstance(group, dict)]
     for group in role_groups:
-        ok, group_terms = group_matches(text, group)
+        ok, group_terms = group_matches(role_text, group)
         if not ok:
             continue
         group_id = str(group.get("id") or group.get("label") or "role_group").strip()

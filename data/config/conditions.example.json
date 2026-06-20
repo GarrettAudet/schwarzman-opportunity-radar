@@ -27,7 +27,8 @@
     "9+ years",
     "8+ years",
     "7+ years",
-    "6+ years"
+    "6+ years",
+    "senior"
   ],
   "exclude_full_text_any": [
     "retail store",
@@ -117,5 +118,48 @@
         "infrastructure"
       ]
     }
+  ],
+  "role_description_chars": 0,
+  "exclude_title_any": [
+    "senior",
+    "staff engineer",
+    "staff software",
+    "staff backend",
+    "principal",
+    "director",
+    "vp",
+    "vice president",
+    "head of",
+    "recruiter",
+    "recruiting",
+    "talent acquisition",
+    "talent",
+    "human resources",
+    "hrbp",
+    "executive assistant",
+    "office manager",
+    "administrative",
+    "customer success",
+    "account manager",
+    "sales engineer",
+    "brand designer",
+    "designer",
+    "digital marketing",
+    "crm manager",
+    "member services",
+    "lead",
+    "engineering manager",
+    "account executive",
+    "sales development",
+    "account associate",
+    "marketer",
+    "content editor",
+    "storytelling",
+    "contract",
+    "customer engineer",
+    "solutions engineer",
+    "staff ai engineer",
+    "staff ml engineer",
+    "staff machine learning engineer"
   ]
 }

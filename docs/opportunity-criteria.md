@@ -15,6 +15,7 @@ Avoid roles that are:
 
 - Generic, low-information, spammy, commission-only, or unpaid.
 - Clearly too senior without a fellowship/rotational/early-career path.
+- Recruiting, HR, admin, office management, customer support/success, generic sales/account management, or design/marketing roles unless the company and role are unusually strategic.
 - Any role explicitly requiring more than 5 years of experience.
 - Purely local execution work with no strategic, brand, mission, learning, or leadership signal.
 - Outside the configured target cities unless explicitly allowed by config.
