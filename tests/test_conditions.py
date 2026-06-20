@@ -64,6 +64,20 @@ class ConditionTests(unittest.TestCase):
         self.assertFalse(match.allowed)
         self.assertEqual(match.rejection_reason, "years_experience")
 
+    def test_rejects_more_than_five_years_after_description_prefix(self) -> None:
+        description = ("context " * 400) + "Who You Are 6+ years in client marketing, communications, or events."
+        match = match_job_conditions(job("Strategic Events Program Manager", description), CONDITIONS)
+        self.assertFalse(match.allowed)
+        self.assertEqual(match.rejection_reason, "years_experience")
+
+    def test_rejects_low_signal_full_text_keywords(self) -> None:
+        conditions = {**CONDITIONS, "exclude_full_text_any": ["retail store", "sales floor"]}
+        description = "This operations role supports a retail store and sales floor execution."
+        match = match_job_conditions(job("Operations Lead", description), conditions)
+        self.assertFalse(match.allowed)
+        self.assertEqual(match.rejection_reason, "excluded_full_text_keyword")
+        self.assertIn("retail store", match.excluded_terms)
+
     def test_rejects_stale_postings_when_recency_enabled(self) -> None:
         now = datetime(2026, 6, 20, tzinfo=timezone.utc)
         conditions = {**CONDITIONS, "posted_within_days": 8}

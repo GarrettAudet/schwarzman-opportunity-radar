@@ -53,6 +53,14 @@ def explicit_year_requirements(text: str) -> list[tuple[int, int | None]]:
     )
     for match in experience_before_pattern.finditer(lowered):
         requirements.append((int(match.group(1)), None))
+
+    requirement_section_pattern = re.compile(
+        r"\b(?:requirements?|qualifications?|preferred qualifications?|who you are|you have|you bring|must have)\b"
+        r"[^.;\n]{0,140}?"
+        r"(?<![\d$])(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b"
+    )
+    for match in requirement_section_pattern.finditer(lowered):
+        requirements.append((int(match.group(1)), None))
     return requirements
 
 
@@ -78,7 +86,8 @@ def source_filter_allows(job: JobPosting, source: dict[str, Any]) -> bool:
             " ".join(job.tags),
         ]
     )
-    if not years_experience_allowed(haystack):
+    years_haystack = " ".join([haystack, job.description_text])
+    if not years_experience_allowed(years_haystack):
         return False
     exclude = list(source.get("exclude_keywords", []) or [])
     if exclude and contains_any(haystack, exclude):

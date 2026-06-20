@@ -150,6 +150,10 @@ def condition_text(job: JobPosting, *, description_chars: int) -> str:
     return " ".join([condition_metadata_text(job), job.description_text[:description_chars]])
 
 
+def full_condition_text(job: JobPosting) -> str:
+    return " ".join([condition_metadata_text(job), job.description_text])
+
+
 def group_matches(text: str, group: dict[str, Any]) -> tuple[bool, list[str]]:
     include_any = list(group.get("include_any", []) or [])
     include_all = list(group.get("include_all", []) or [])
@@ -185,11 +189,24 @@ def match_job_conditions(
 
     text = condition_text(job, description_chars=description_chars)
     metadata_text = condition_metadata_text(job)
+    full_text = full_condition_text(job)
     max_years = int(conditions.get("max_years_experience", MAX_REQUIRED_YEARS) or MAX_REQUIRED_YEARS)
     excluded_terms = matched_keywords(metadata_text, conditions.get("exclude_any", []) or [])
     if excluded_terms:
         return rejected_match(job, "excluded_keyword", posted_at=posted_at, age_days=age_days, excluded_terms=excluded_terms)
-    if not years_experience_allowed(text, max_required_years=max_years):
+    full_text_excluded_terms = matched_keywords(
+        full_text,
+        conditions.get("exclude_full_text_any", []) or conditions.get("exclude_description_any", []) or [],
+    )
+    if full_text_excluded_terms:
+        return rejected_match(
+            job,
+            "excluded_full_text_keyword",
+            posted_at=posted_at,
+            age_days=age_days,
+            excluded_terms=full_text_excluded_terms,
+        )
+    if not years_experience_allowed(full_text, max_required_years=max_years):
         return rejected_match(job, "years_experience", posted_at=posted_at, age_days=age_days)
 
     role_group_ids: list[str] = []

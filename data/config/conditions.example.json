@@ -1,6 +1,13 @@
 {
   "version": 1,
-  "locations": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"],
+  "locations": [
+    "Beijing",
+    "Dubai",
+    "Shenzhen",
+    "New York",
+    "San Francisco",
+    "Sydney"
+  ],
   "allow_global_remote": false,
   "posted_within_days": 8,
   "max_years_experience": 5,
@@ -14,11 +21,25 @@
     "vice president",
     "head of",
     "principal",
+    "part-time",
+    "seasonal",
     "10+ years",
     "9+ years",
     "8+ years",
     "7+ years",
     "6+ years"
+  ],
+  "exclude_full_text_any": [
+    "retail store",
+    "store operations",
+    "sales floor",
+    "stock room",
+    "stockroom",
+    "cash handling",
+    "visual merchandising",
+    "weekend availability",
+    "hourly role",
+    "hourly position"
   ],
   "role_groups": [
     {
