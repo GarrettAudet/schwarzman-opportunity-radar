@@ -87,6 +87,12 @@ Send to configured recipients from evaluated state:
 python scripts\run_weekly_digest.py --root . --send --from-state
 ```
 
+Check whether the current environment is configured for Twilio WhatsApp sending without sending anything:
+
+```powershell
+python scripts\check_send_ready.py --root .
+```
+
 Run the protected API locally:
 
 ```powershell

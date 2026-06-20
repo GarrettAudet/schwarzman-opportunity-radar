@@ -33,3 +33,9 @@ TWILIO_MESSAGING_SERVICE_SID=<optional messaging service sid>
 ```
 
 Use `TWILIO_WHATSAPP_CONTENT_SID` for proactive notifications outside the WhatsApp customer-service window. If `TWILIO_MESSAGING_SERVICE_SID` is set with the template SID, `TWILIO_WHATSAPP_FROM` is optional; otherwise configure `TWILIO_WHATSAPP_FROM` with the approved WhatsApp sender.
+
+Before enabling the weekly sender, run:
+
+```powershell
+python scripts\check_send_ready.py --root .
+```
