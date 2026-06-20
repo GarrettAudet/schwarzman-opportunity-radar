@@ -1,9 +1,10 @@
-﻿{
+{
   "version": 1,
   "enabled": true,
   "provider": "common_crawl_registry",
-  "ats_hosts": ["job-boards.greenhouse.io", "boards.greenhouse.io"],
+  "ats_hosts": ["job-boards.greenhouse.io", "boards.greenhouse.io", "*.greenhouse.io/*/jobs/*"],
   "max_registry_refresh_urls": 5000,
+  "max_common_crawl_indexes": 4,
   "max_boards_per_daily_run": 300,
   "max_jobs_per_source": 500,
   "max_detail_fetches_per_board": 12,

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -17,6 +17,7 @@ def main() -> int:
     parser.add_argument("--write", action="store_true", help="Persist discovered boards to state")
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing; this is the default")
     parser.add_argument("--discovery-config", default="", help="Optional discovery JSON path")
+    parser.add_argument("--conditions", default="", help="Optional conditions JSON path for targeted discovery providers")
     parser.add_argument("--json", action="store_true", help="Print full JSON")
     args = parser.parse_args()
 
@@ -24,6 +25,7 @@ def main() -> int:
         Path(args.root),
         write=bool(args.write),
         discovery_path=args.discovery_config,
+        conditions_path=args.conditions,
     )
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

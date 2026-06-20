@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
@@ -36,6 +36,7 @@ def main() -> int:
             root,
             write=True,
             discovery_path=args.discovery_config,
+            conditions_path=args.conditions,
         )
     discovery_result = run_discovery(
         root,

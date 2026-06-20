@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import unittest
 from pathlib import Path
@@ -6,7 +6,10 @@ from pathlib import Path
 from opportunity_radar.fetch import FetchResponse
 from opportunity_radar.registry import (
     active_registry_sources,
+    common_crawl_cdx_url,
+    common_crawl_indexes,
     discover_common_crawl_refs,
+    discover_registry_refs,
     merge_board_registry,
     parse_cdx_records,
     parse_greenhouse_job_url,
@@ -33,6 +36,11 @@ class RegistryTests(unittest.TestCase):
         api = parse_greenhouse_job_url("https://boards-api.greenhouse.io/v1/boards/coolco/jobs/777")
         self.assertIsNotNone(api)
         self.assertEqual(api.board_token, "coolco")
+
+        regional = parse_greenhouse_job_url("https://job-boards.anz.greenhouse.io/dawnaerospace/jobs/4001647201")
+        self.assertIsNotNone(regional)
+        self.assertEqual(regional.board_token, "dawnaerospace")
+        self.assertEqual(regional.job_id, "4001647201")
 
     def test_rejects_non_greenhouse_and_excluded_domains(self) -> None:
         self.assertIsNone(parse_greenhouse_job_url("https://www.linkedin.com/jobs/view/123"))
@@ -99,6 +107,95 @@ class RegistryTests(unittest.TestCase):
     def test_parse_cdx_records_handles_json_lines(self) -> None:
         records = parse_cdx_records('{"url":"https://job-boards.greenhouse.io/a/jobs/1"}\n{"url":"https://job-boards.greenhouse.io/b/jobs/2"}')
         self.assertEqual(len(records), 2)
+
+    def test_common_crawl_indexes_prefers_cdx_api_endpoint(self) -> None:
+        def fetcher(url: str, **_kwargs: object) -> FetchResponse:
+            self.assertEqual(url, "https://index.commoncrawl.org/collinfo.json")
+            return FetchResponse(
+                status=200,
+                url=url,
+                body='[{"id":"CC-MAIN-2026-21","cdx-api":"https://index.commoncrawl.org/CC-MAIN-2026-21-index"},{"id":"CC-MAIN-2026-17"}]',
+                headers={},
+            )
+
+        indexes, errors = common_crawl_indexes({"max_common_crawl_indexes": 2}, fetcher=fetcher)
+        self.assertEqual(errors, [])
+        self.assertEqual(indexes, ["https://index.commoncrawl.org/CC-MAIN-2026-21-index", "https://index.commoncrawl.org/CC-MAIN-2026-17-index"])
+
+    def test_common_crawl_cdx_url_uses_index_endpoint_and_broad_host_path(self) -> None:
+        url = common_crawl_cdx_url("CC-MAIN-2026-21", "job-boards.greenhouse.io", 25)
+        self.assertTrue(url.startswith("https://index.commoncrawl.org/CC-MAIN-2026-21-index?"))
+        self.assertIn("url=job-boards.greenhouse.io%2F%2A", url)
+        self.assertIn("limit=25", url)
+        self.assertNotIn("/cdx?", url)
+
+    def test_common_crawl_404_query_is_empty_not_fatal(self) -> None:
+        def fetcher(url: str, **_kwargs: object) -> FetchResponse:
+            if url.endswith("collinfo.json"):
+                return FetchResponse(200, url, '[{"id":"CC-MAIN-2026-21"}]', {})
+            raise RuntimeError("HTTP 404 fetching https://index.commoncrawl.org/CC-MAIN-2026-21-index: URL Not Found")
+
+        result = discover_common_crawl_refs(ROOT, {"enabled": True, "ats_hosts": ["job-boards.greenhouse.io"]}, fetcher=fetcher)
+        self.assertEqual(result["raw_url_count"], 0)
+        self.assertEqual(result["errors"], [])
+
+    def test_google_cse_registry_discovers_greenhouse_refs(self) -> None:
+        requested_urls: list[str] = []
+
+        def fetcher(url: str, **_kwargs: object) -> FetchResponse:
+            requested_urls.append(url)
+            return FetchResponse(
+                200,
+                url,
+                '{"items":[{"link":"https://job-boards.greenhouse.io/coolco/jobs/123"},{"link":"https://www.linkedin.com/jobs/view/456"}]}',
+                {},
+            )
+
+        config = {
+            "provider": "google_cse_registry",
+            "google_cse": {
+                "enabled": True,
+                "api_key": "key",
+                "cx": "cx",
+                "queries": ["site:job-boards.greenhouse.io New York strategy"],
+                "results_per_query": 10,
+            },
+        }
+        result = discover_registry_refs(ROOT, config, {}, fetcher=fetcher)
+        self.assertEqual(result["raw_url_count"], 2)
+        self.assertEqual(result["accepted_ref_count"], 1)
+        self.assertEqual(result["rejected_url_count"], 1)
+        self.assertEqual(result["refs"][0]["board_token"], "coolco")
+        self.assertIn("customsearch/v1", requested_urls[0])
+
+    def test_google_cse_registry_requires_credentials(self) -> None:
+        result = discover_registry_refs(ROOT, {"provider": "google_cse_registry", "google_cse": {"enabled": True}}, {}, fetcher=lambda *_args, **_kwargs: self.fail("fetcher should not be called"))
+        self.assertEqual(result["accepted_ref_count"], 0)
+        self.assertIn("google_cse_missing_credentials", result["errors"])
+
+    def test_hybrid_registry_combines_common_crawl_and_google_refs(self) -> None:
+        def fetcher(url: str, **_kwargs: object) -> FetchResponse:
+            if url.endswith("collinfo.json"):
+                return FetchResponse(200, url, '[{"id":"CC-MAIN-2026-21"}]', {})
+            if "customsearch" in url:
+                return FetchResponse(200, url, '{"items":[{"link":"https://job-boards.greenhouse.io/searchco/jobs/777"}]}', {})
+            return FetchResponse(200, url, '{"url":"https://job-boards.greenhouse.io/crawlco/jobs/100"}', {})
+
+        config = {
+            "provider": "hybrid_registry",
+            "ats_hosts": ["job-boards.greenhouse.io"],
+            "max_registry_refresh_urls": 10,
+            "common_crawl_indexes": ["CC-MAIN-2026-21"],
+            "google_cse": {
+                "enabled": True,
+                "api_key": "key",
+                "cx": "cx",
+                "queries": ["site:job-boards.greenhouse.io New York operations"],
+            },
+        }
+        result = discover_registry_refs(ROOT, config, {}, fetcher=fetcher)
+        self.assertEqual(result["accepted_ref_count"], 2)
+        self.assertEqual({ref["board_token"] for ref in result["refs"]}, {"crawlco", "searchco"})
 
 
 if __name__ == "__main__":

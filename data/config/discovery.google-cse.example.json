@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "enabled": true,
+  "provider": "hybrid_registry",
+  "ats_hosts": [
+    "job-boards.greenhouse.io",
+    "boards.greenhouse.io",
+    "*.greenhouse.io/*/jobs/*"
+  ],
+  "max_registry_refresh_urls": 5000,
+  "max_common_crawl_indexes": 4,
+  "max_boards_per_daily_run": 300,
+  "max_jobs_per_source": 500,
+  "max_detail_fetches_per_board": 12,
+  "posted_within_days": 8,
+  "exclude_domains": [
+    "linkedin.com",
+    "www.linkedin.com",
+    "m.linkedin.com"
+  ],
+  "google_cse": {
+    "enabled": true,
+    "api_key_env": "GOOGLE_CSE_API_KEY",
+    "cx_env": "GOOGLE_CSE_CX",
+    "max_queries": 30,
+    "results_per_query": 10,
+    "max_pages_per_query": 1,
+    "max_results": 300,
+    "date_restrict": "d14",
+    "sites": [
+      "job-boards.greenhouse.io",
+      "boards.greenhouse.io",
+      "job-boards.eu.greenhouse.io",
+      "job-boards.anz.greenhouse.io"
+    ],
+    "max_city_aliases": 3,
+    "max_role_terms_per_group": 6
+  }
+}
