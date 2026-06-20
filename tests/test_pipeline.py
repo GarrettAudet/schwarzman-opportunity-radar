@@ -110,6 +110,26 @@ class PipelineTests(unittest.TestCase):
                 self.assertFalse(result.state_summary["mutated"])
                 self.assertFalse((Path(tmp) / "state.json").exists())
 
+    def test_real_twilio_send_preflights_missing_credentials(self) -> None:
+        env = {"OPPORTUNITY_RECIPIENTS": "whatsapp:+15550001111"}
+        with patch.dict(os.environ, env, clear=True):
+            with tempfile.TemporaryDirectory() as tmp:
+                store = FileJsonStore(Path(tmp) / "state.json")
+                result = run_digest(
+                    ROOT,
+                    send=True,
+                    force=True,
+                    sources_path="tests/fixtures/sources.fixture.json",
+                    deterministic_fallback=True,
+                    include_seen=True,
+                    state_store=store,
+                )
+                self.assertIn("TWILIO_ACCOUNT_SID is not set", result.errors)
+                self.assertIn("TWILIO_AUTH_TOKEN is not set", result.errors)
+                self.assertIn("TWILIO_WHATSAPP_FROM is not set", result.errors)
+                self.assertEqual(result.recipient_results, [])
+                self.assertFalse(result.state_summary["mutated"])
+
 
 if __name__ == "__main__":
     unittest.main()

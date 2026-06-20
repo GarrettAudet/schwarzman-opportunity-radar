@@ -29,6 +29,7 @@ TWILIO_ACCOUNT_SID=<twilio sid>
 TWILIO_AUTH_TOKEN=<twilio token>
 TWILIO_WHATSAPP_FROM=whatsapp:+15551234567
 TWILIO_WHATSAPP_CONTENT_SID=<optional approved template content sid>
+TWILIO_MESSAGING_SERVICE_SID=<optional messaging service sid>
 ```
 
-Use `TWILIO_WHATSAPP_CONTENT_SID` for proactive notifications outside the WhatsApp customer-service window.
+Use `TWILIO_WHATSAPP_CONTENT_SID` for proactive notifications outside the WhatsApp customer-service window. If `TWILIO_MESSAGING_SERVICE_SID` is set with the template SID, `TWILIO_WHATSAPP_FROM` is optional; otherwise configure `TWILIO_WHATSAPP_FROM` with the approved WhatsApp sender.

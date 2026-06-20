@@ -7,6 +7,7 @@ from unittest.mock import patch
 from opportunity_radar.models import JobPosting
 from opportunity_radar.ranker import rank_deterministically, rank_with_llm
 from opportunity_radar.sender import TwilioWhatsAppSender
+from opportunity_radar.twilio_whatsapp import twilio_send_config_errors
 
 
 class FakeClient:
@@ -74,6 +75,29 @@ class RankerSenderTests(unittest.TestCase):
         payload = send_message_payload.call_args.args[2]
         self.assertEqual(payload["ContentSid"], "HX123")
         self.assertEqual(payload["MessagingServiceSid"], "MG123")
+
+    @patch("opportunity_radar.twilio_whatsapp.send_message_payload")
+    def test_twilio_template_with_messaging_service_does_not_require_from(self, send_message_payload) -> None:  # type: ignore[no-untyped-def]
+        send_message_payload.return_value = {"sid": "SM456"}
+        env = {"TWILIO_ACCOUNT_SID": "AC123", "TWILIO_AUTH_TOKEN": "token"}
+        with patch.dict(os.environ, env, clear=True):
+            result = TwilioWhatsAppSender(content_sid="HX123", messaging_service_sid="MG123").send("+15552223333", "Digest")
+        self.assertTrue(result.ok)
+        payload = send_message_payload.call_args.args[2]
+        self.assertEqual(payload["To"], "whatsapp:+15552223333")
+        self.assertEqual(payload["MessagingServiceSid"], "MG123")
+        self.assertNotIn("From", payload)
+
+    def test_twilio_preflight_reports_missing_send_config(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            errors = twilio_send_config_errors(recipients=["whatsapp:+15552223333"])
+        self.assertEqual(errors, ["TWILIO_ACCOUNT_SID is not set", "TWILIO_AUTH_TOKEN is not set", "TWILIO_WHATSAPP_FROM is not set"])
+
+    def test_twilio_preflight_allows_messaging_service_without_from(self) -> None:
+        env = {"TWILIO_ACCOUNT_SID": "AC123", "TWILIO_AUTH_TOKEN": "token"}
+        with patch.dict(os.environ, env, clear=True):
+            errors = twilio_send_config_errors(recipients=["whatsapp:+15552223333"], content_sid="HX123", messaging_service_sid="MG123")
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from .models import DigestRun, JobPosting, RankedOpportunity, SourceResult, now_
 from .ranker import rank_deterministically, rank_with_llm
 from .scheduling import should_send_now, week_key_for
 from .sender import DryRunSender, Sender, TwilioWhatsAppSender
+from .twilio_whatsapp import twilio_send_config_errors
 from .state import JsonStore, load_json_from_github, state_store_from_env
 
 
@@ -129,7 +130,16 @@ def send_selected_digest(
     ranker_failed = any(error.startswith("ranker_failed") for error in errors)
     if send and not ranker_failed and (selected or config.send_empty_digest):
         recipients = config.recipients
-        if not recipients:
+        if sender is None:
+            config_errors = twilio_send_config_errors(
+                recipients=recipients,
+                content_sid=config.twilio_content_sid,
+                messaging_service_sid=config.twilio_messaging_service_sid,
+            )
+            if config_errors:
+                errors.extend(error for error in config_errors if error not in errors)
+                return recipient_results
+        elif not recipients:
             errors.append("no_recipients_configured")
             return recipient_results
         active_sender = sender_for_run(config, dry_run=False, sender=sender)

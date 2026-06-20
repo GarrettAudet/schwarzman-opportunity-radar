@@ -55,17 +55,40 @@ def split_message(body: str) -> list[str]:
     return chunks
 
 
-def twilio_credentials() -> tuple[str, str, str]:
+def twilio_auth_credentials() -> tuple[str, str]:
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
-    sender = os.environ.get("TWILIO_WHATSAPP_FROM", "").strip()
     if not account_sid:
         raise TwilioWhatsAppError("TWILIO_ACCOUNT_SID is not set")
     if not auth_token:
         raise TwilioWhatsAppError("TWILIO_AUTH_TOKEN is not set")
+    return account_sid, auth_token
+
+
+def twilio_from_address(value: str = "") -> str:
+    sender = (value or os.environ.get("TWILIO_WHATSAPP_FROM", "")).strip()
     if not sender:
         raise TwilioWhatsAppError("TWILIO_WHATSAPP_FROM is not set")
-    return account_sid, auth_token, strip_whatsapp_prefix(sender)
+    return strip_whatsapp_prefix(sender)
+
+
+def twilio_credentials() -> tuple[str, str, str]:
+    account_sid, auth_token = twilio_auth_credentials()
+    return account_sid, auth_token, twilio_from_address()
+
+
+def twilio_send_config_errors(*, recipients: list[str], content_sid: str = "", messaging_service_sid: str = "") -> list[str]:
+    errors: list[str] = []
+    if not recipients:
+        errors.append("no_recipients_configured")
+    if not os.environ.get("TWILIO_ACCOUNT_SID", "").strip():
+        errors.append("TWILIO_ACCOUNT_SID is not set")
+    if not os.environ.get("TWILIO_AUTH_TOKEN", "").strip():
+        errors.append("TWILIO_AUTH_TOKEN is not set")
+    sender_required = not (content_sid and messaging_service_sid)
+    if sender_required and not os.environ.get("TWILIO_WHATSAPP_FROM", "").strip():
+        errors.append("TWILIO_WHATSAPP_FROM is not set")
+    return errors
 
 
 def send_message_payload(account_sid: str, auth_token: str, data: dict[str, str]) -> dict[str, Any]:
@@ -112,7 +135,7 @@ def send_template(
     messaging_service_sid: str = "",
     from_address: str = "",
 ) -> list[dict[str, Any]]:
-    account_sid, auth_token, default_sender = twilio_credentials()
+    account_sid, auth_token = twilio_auth_credentials()
     data = {
         "To": strip_whatsapp_prefix(to_address),
         "ContentSid": content_sid,
@@ -121,5 +144,5 @@ def send_template(
     if messaging_service_sid:
         data["MessagingServiceSid"] = messaging_service_sid
     else:
-        data["From"] = strip_whatsapp_prefix(from_address or default_sender)
+        data["From"] = twilio_from_address(from_address)
     return [send_message_payload(account_sid, auth_token, data)]

@@ -119,6 +119,7 @@ TWILIO_ACCOUNT_SID=<sid>
 TWILIO_AUTH_TOKEN=<token>
 TWILIO_WHATSAPP_FROM=whatsapp:+15551234567
 TWILIO_WHATSAPP_CONTENT_SID=<optional approved template sid>
+TWILIO_MESSAGING_SERVICE_SID=<optional messaging service sid>
 GITHUB_STATE_REPO=<owner/private-state-repo>
 GITHUB_STATE_TOKEN=<fine-grained contents read/write token>
 GITHUB_STATE_PATH=opportunity-state.json
@@ -126,6 +127,8 @@ GITHUB_DISCOVERY_PATH=discovery.json
 GITHUB_SOURCES_PATH=<optional sources.json>
 GITHUB_CONDITIONS_PATH=conditions.json
 ```
+
+For proactive WhatsApp sends, prefer `TWILIO_WHATSAPP_CONTENT_SID` with an approved template. If `TWILIO_MESSAGING_SERVICE_SID` is set with the template SID, `TWILIO_WHATSAPP_FROM` is not required; otherwise set `TWILIO_WHATSAPP_FROM` to your approved WhatsApp sender.
 
 ## Production Gate
 
