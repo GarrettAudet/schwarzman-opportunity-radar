@@ -1,0 +1,133 @@
+name: OpportunityRadar schedule
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Task to run manually. Manual all-preview never sends WhatsApp messages.
+        required: true
+        default: all-preview
+        type: choice
+        options:
+          - all-preview
+          - registry
+          - discovery
+          - weekly-preview
+          - weekly-send
+      deterministic_fallback:
+        description: Use deterministic ranking fallback for manual discovery if OpenRouter is not configured.
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # UTC schedules. The weekly sender still checks OPPORTUNITY_SEND_* locally.
+    - cron: "0 14 * * MON" # registry refresh
+    - cron: "0 15 * * *" # daily discovery
+    - cron: "0 * * * MON" # weekly send guard
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opportunity-radar-schedule
+  cancel-in-progress: false
+
+jobs:
+  opportunity-radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHON_VERSION: "3.11"
+      OPPORTUNITY_TIMEZONE: ${{ vars.OPPORTUNITY_TIMEZONE || 'America/Edmonton' }}
+      OPPORTUNITY_SEND_DOW: ${{ vars.OPPORTUNITY_SEND_DOW || 'MON' }}
+      OPPORTUNITY_SEND_HOUR: ${{ vars.OPPORTUNITY_SEND_HOUR || '9' }}
+      OPPORTUNITY_MAX_JOBS: ${{ vars.OPPORTUNITY_MAX_JOBS || '10' }}
+      OPPORTUNITY_CITIES: ${{ vars.OPPORTUNITY_CITIES || 'Beijing,Dubai,Shenzhen,New York,San Francisco,Sydney' }}
+      OPPORTUNITY_RECIPIENTS: ${{ secrets.OPPORTUNITY_RECIPIENTS }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_RANK_MODEL: ${{ vars.OPENROUTER_RANK_MODEL || 'openai/gpt-4.1-mini' }}
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
+      TWILIO_WHATSAPP_CONTENT_SID: ${{ secrets.TWILIO_WHATSAPP_CONTENT_SID }}
+      TWILIO_MESSAGING_SERVICE_SID: ${{ secrets.TWILIO_MESSAGING_SERVICE_SID }}
+      GITHUB_STATE_REPO: ${{ secrets.OPPORTUNITY_STATE_REPO }}
+      GITHUB_STATE_TOKEN: ${{ secrets.OPPORTUNITY_STATE_TOKEN }}
+      GITHUB_STATE_PATH: ${{ vars.OPPORTUNITY_STATE_PATH || 'opportunity-state.json' }}
+      GITHUB_STATE_REF: ${{ vars.OPPORTUNITY_STATE_REF || 'main' }}
+      GITHUB_DISCOVERY_PATH: ${{ vars.OPPORTUNITY_DISCOVERY_PATH || 'discovery.json' }}
+      GITHUB_CONDITIONS_PATH: ${{ vars.OPPORTUNITY_CONDITIONS_PATH || 'conditions.json' }}
+      GITHUB_SOURCES_PATH: ${{ vars.OPPORTUNITY_SOURCES_PATH || '' }}
+      MANUAL_TASK: ${{ inputs.task || '' }}
+      DETERMINISTIC_FALLBACK: ${{ inputs.deterministic_fallback || 'false' }}
+
+    steps:
+      - name: Scheduled run guard
+        if: ${{ github.event_name == 'schedule' && vars.OPPORTUNITY_SCHEDULER_ENABLED != 'true' }}
+        run: |
+          echo "Scheduled OpportunityRadar runs are disabled."
+          echo "Set repository variable OPPORTUNITY_SCHEDULER_ENABLED=true after budget controls and secrets are configured."
+
+      - name: Check out repository
+        if: ${{ github.event_name == 'workflow_dispatch' || vars.OPPORTUNITY_SCHEDULER_ENABLED == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: ${{ github.event_name == 'workflow_dispatch' || vars.OPPORTUNITY_SCHEDULER_ENABLED == 'true' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-backend.txt
+
+      - name: Install dependencies
+        if: ${{ github.event_name == 'workflow_dispatch' || vars.OPPORTUNITY_SCHEDULER_ENABLED == 'true' }}
+        run: python -m pip install -r requirements-backend.txt
+
+      - name: Refresh board registry
+        if: >-
+          ${{
+            (github.event_name == 'schedule' && vars.OPPORTUNITY_SCHEDULER_ENABLED == 'true' && github.event.schedule == '0 14 * * MON') ||
+            (github.event_name == 'workflow_dispatch' && (inputs.task == 'all-preview' || inputs.task == 'registry'))
+          }}
+        run: python scripts/refresh_registry.py --root . --write
+
+      - name: Run daily discovery
+        if: >-
+          ${{
+            (github.event_name == 'schedule' && vars.OPPORTUNITY_SCHEDULER_ENABLED == 'true' && github.event.schedule == '0 15 * * *') ||
+            (github.event_name == 'workflow_dispatch' && (inputs.task == 'all-preview' || inputs.task == 'discovery'))
+          }}
+        run: |
+          args=""
+          if [ "${DETERMINISTIC_FALLBACK}" = "true" ]; then
+            args="--deterministic-fallback"
+          fi
+          python scripts/run_discovery.py --root . --write ${args}
+
+      - name: Check WhatsApp send readiness
+        if: >-
+          ${{
+            (github.event_name == 'schedule' && vars.OPPORTUNITY_SCHEDULER_ENABLED == 'true' && github.event.schedule == '0 * * * MON') ||
+            (github.event_name == 'workflow_dispatch' && inputs.task == 'weekly-send')
+          }}
+        run: python scripts/check_send_ready.py --root .
+
+      - name: Run weekly digest
+        if: >-
+          ${{
+            (github.event_name == 'schedule' && vars.OPPORTUNITY_SCHEDULER_ENABLED == 'true' && github.event.schedule == '0 * * * MON') ||
+            (github.event_name == 'workflow_dispatch' && (inputs.task == 'all-preview' || inputs.task == 'weekly-preview' || inputs.task == 'weekly-send'))
+          }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+            python scripts/run_weekly_digest.py --root . --send --respect-schedule --from-state
+          elif [ "${MANUAL_TASK}" = "weekly-send" ]; then
+            python scripts/run_weekly_digest.py --root . --send --force --from-state
+          else
+            python scripts/run_weekly_digest.py --root . --from-state
+          fi
+
+      - name: Summarize disabled schedule
+        if: ${{ github.event_name == 'schedule' && vars.OPPORTUNITY_SCHEDULER_ENABLED != 'true' }}
+        run: echo "No paid or metered work was started."

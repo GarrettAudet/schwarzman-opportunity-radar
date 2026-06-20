@@ -23,13 +23,13 @@ The project is intentionally built around adapters and durable state so one brok
 flowchart LR
     A[Weekly/Manual Registry Refresh] --> B[Common Crawl Board Registry]
     B --> C[Private JSON State]
-    D[Daily Render Cron] --> E[Poll Active Greenhouse Boards]
+    D[Daily GitHub Actions Scheduler] --> E[Poll Active Greenhouse Boards]
     C <--> E
     E --> F[City + Condition Filters]
     F --> G[LLM Ranker]
     G --> H[Evaluated Jobs in State]
     H <--> C
-    I[Weekly Render Cron] --> J[Digest From Unsent Winners]
+    I[Weekly GitHub Actions Scheduler] --> J[Digest From Unsent Winners]
     J <--> C
     J --> K[Twilio WhatsApp Sender]
     L[Protected API] --> J
@@ -146,10 +146,19 @@ The gate compiles Python, runs the unit/integration tests, performs fixture-back
 
 ## Deployment
 
-`render.yaml` defines a web service plus three cron services:
+`render.yaml` intentionally defines only the free Render web service:
 
-- `opportunity-radar-registry-refresh` runs weekly and refreshes discovered Greenhouse board tokens from Common Crawl.
-- `opportunity-radar-discovery` runs daily, polls active registry boards plus any optional configured sources, and writes evaluated jobs to durable state.
-- `opportunity-radar-weekly` runs hourly on Mondays in UTC with `--respect-schedule --from-state`; the app only sends during the configured local send hour, avoiding daylight-saving drift.
+- `opportunity-radar-api` exposes `/health`, `/digest/preview`, and `/digest/run`.
+- The default Blueprint does not create Render cron services, because Render cron jobs have a monthly minimum charge.
+
+Scheduled work runs from `.github/workflows/opportunity-radar-schedule.yml`:
+
+- weekly registry refresh discovers Greenhouse board tokens from Common Crawl.
+- daily discovery polls active registry boards plus any optional configured sources, then writes evaluated jobs to durable state.
+- weekly digest runs hourly on Mondays in UTC with `--respect-schedule --from-state`; the app only sends during the configured local send hour, avoiding daylight-saving drift.
+
+Scheduled GitHub Actions runs are disabled until repository variable `OPPORTUNITY_SCHEDULER_ENABLED=true` is set. Manual workflow dispatch can run `all-preview`, `registry`, `discovery`, `weekly-preview`, or `weekly-send`.
+
+See `docs/cost-controls.md` for the free/spend-capped deployment policy.
 
 See `docs/private-state-repo-readme.md` for the private state/config repo layout.
