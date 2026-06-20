@@ -7,9 +7,9 @@ The project is intentionally built around adapters and durable state so one brok
 ## What It Does
 
 - Pulls jobs from structured ATS/feed sources first: Greenhouse, Lever, Ashby, RSS, and a configurable HTML fallback.
-- For Greenhouse, fetches the board index first, city-filters the lightweight postings, then detail-fetches only promising target-city roles.
+- For Greenhouse, fetches the board index first, condition-filters the lightweight postings, then detail-fetches only promising target-city roles.
 - Normalizes target-city aliases including NYC, New York City, SF, Shenzhen, Shenzen, and Sydney.
-- Applies deterministic hard filters before the LLM, including the 0-5 years-of-experience requirement.
+- Applies deterministic condition filters before the LLM, including target locations, role groups, exclude terms, and the 0-5 years-of-experience requirement.
 - Stores daily evaluated opportunities in durable JSON state, then sends the weekly digest from unsent included jobs.
 - Uses `docs/opportunity-criteria.md` to guide LLM judgment for what counts as a cool Scholar-relevant role.
 - Sends a WhatsApp-safe weekly digest through Twilio.
@@ -23,7 +23,7 @@ The project is intentionally built around adapters and durable state so one brok
 flowchart LR
     A[Daily Render Cron] --> B[Source Discovery]
     B --> C[Structured Adapters]
-    C --> D[City + Hard Filters]
+    C --> D[City + Condition Filters]
     D --> E[LLM Ranker]
     E --> F[Evaluated Jobs in State]
     G[Weekly Render Cron] --> H[Digest From Unsent Winners]
@@ -48,22 +48,22 @@ Run a fixture-backed weekly dry run without spending model tokens:
 python scripts\run_weekly_digest.py --root . --sources tests\fixtures\sources.fixture.json --deterministic-fallback --include-seen
 ```
 
-Run daily discovery against fixtures:
+Run daily discovery against fixtures using the default condition file:
 
 ```powershell
-python scripts\run_discovery.py --root . --sources tests\fixtures\sources.fixture.json --deterministic-fallback --json
+python scripts\run_discovery.py --root . --sources tests\fixtures\sources.fixture.json --conditions data\config\conditions.example.json --deterministic-fallback --json
 ```
 
 Try the Greenhouse discovery flow against Anthropic without writing state:
 
 ```powershell
-python scripts\run_discovery.py --root . --sources data\config\sources.greenhouse-smoke.json --deterministic-fallback --json
+python scripts\run_discovery.py --root . --sources data\config\sources.greenhouse-smoke.json --conditions data\config\conditions.example.json --deterministic-fallback --json
 ```
 
 Write evaluated jobs to local state, then preview the weekly digest from that state:
 
 ```powershell
-python scripts\run_discovery.py --root . --sources data\config\sources.greenhouse-smoke.json --deterministic-fallback --write
+python scripts\run_discovery.py --root . --sources data\config\sources.greenhouse-smoke.json --conditions data\config\conditions.example.json --deterministic-fallback --write
 python scripts\run_weekly_digest.py --root . --from-state
 ```
 
@@ -93,7 +93,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/digest/preview -Header
 
 ## Configuration
 
-Copy `data/config/sources.example.json` to `data/config/sources.local.json` for local private source config. Production can read `sources.json` from a private GitHub repo using `GITHUB_SOURCES_PATH`.
+Copy `data/config/sources.example.json` to `data/config/sources.local.json` for local private source config. Copy `data/config/conditions.example.json` to `data/config/conditions.local.json` to tune target locations, role groups, exclude terms, and years-of-experience rules. Production can read `sources.json` and `conditions.json` from a private GitHub repo using `GITHUB_SOURCES_PATH` and `GITHUB_CONDITIONS_PATH`.
 
 Important env vars:
 
@@ -115,6 +115,7 @@ GITHUB_STATE_REPO=<owner/private-state-repo>
 GITHUB_STATE_TOKEN=<fine-grained contents read/write token>
 GITHUB_STATE_PATH=opportunity-state.json
 GITHUB_SOURCES_PATH=sources.json
+GITHUB_CONDITIONS_PATH=conditions.json
 ```
 
 ## Production Gate

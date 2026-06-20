@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import secrets
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from .adapters import fetch_greenhouse_detail, fetch_greenhouse_index, fetch_source, normalize_job, parse_date
 from .cities import canonical_city_set
+from .conditions import ConditionMatch, conditions_allowed_cities, load_conditions, match_job_conditions, role_group_counts
 from .config import load_runtime_config
 from .criteria import load_criteria
 from .fetch import FetchResponse, fetch_url
@@ -19,6 +21,18 @@ from .state import JsonStore, state_store_from_env
 
 
 FetchFn = Callable[..., FetchResponse]
+RejectedJob = tuple[JobPosting, str, str, dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class DiscoveryBatch:
+    jobs: list[JobPosting]
+    rejected_jobs: list[RejectedJob]
+    result: SourceResult
+    cache_update: dict[str, str]
+    city_candidates: int
+    condition_candidates: int
+    condition_matches: dict[str, dict[str, Any]]
 
 
 def job_source_updated_at(raw: dict[str, Any]) -> str:
@@ -52,6 +66,7 @@ def evaluated_entry(
     source_updated_at: str,
     ranked: RankedOpportunity | None = None,
     rejection_reason: str = "",
+    condition_match: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "status": status,
@@ -64,6 +79,7 @@ def evaluated_entry(
         "why_cool": ranked.why_cool if ranked else "",
         "risk_flags": list(ranked.risk_flags) if ranked else [],
         "rejection_reason": rejection_reason,
+        "condition_matches": condition_match or {},
         "job": job.to_dict(),
     }
 
@@ -84,25 +100,45 @@ def normalize_raw_job(
     )
 
 
+def job_with_condition_tags(job: JobPosting, condition_match: ConditionMatch) -> JobPosting:
+    tags = list(job.tags)
+    for group_id in condition_match.role_group_ids:
+        tag = f"condition:{group_id}"
+        if tag not in tags:
+            tags.append(tag)
+    return replace(job, tags=tags)
+
+
+def ranked_payload(item: RankedOpportunity, condition_matches: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    payload = item.to_dict()
+    payload["condition_matches"] = condition_matches.get(item.job.stable_key, {})
+    return payload
+
+
 def greenhouse_discovery_jobs(
     source: dict[str, Any],
     *,
     default_cities: set[str],
     allow_global_remote: bool,
+    conditions_config: dict[str, Any],
     state: dict[str, Any],
     force: bool,
     cache: dict[str, Any],
     fetcher: FetchFn = fetch_url,
-) -> tuple[list[JobPosting], list[tuple[JobPosting, str, str]], SourceResult, dict[str, str], int]:
+) -> DiscoveryBatch:
     raw_index, index_result, cache_update = fetch_greenhouse_index(source, cache=cache, fetcher=fetcher)
     if not index_result.ok:
-        return [], [], index_result, cache_update, 0
+        return DiscoveryBatch([], [], index_result, cache_update, 0, 0, {})
 
     max_jobs = int(source.get("max_jobs_per_source", 500))
     max_detail_fetches = int(source.get("max_detail_fetches", source.get("max_jobs_per_source", 25)))
+    index_description_chars = int(source.get("index_condition_description_chars", 1200))
+    detail_description_chars = int(source.get("detail_condition_description_chars", 8000))
     detail_jobs: list[JobPosting] = []
-    rejected_jobs: list[tuple[JobPosting, str, str]] = []
+    rejected_jobs: list[RejectedJob] = []
+    condition_matches: dict[str, dict[str, Any]] = {}
     city_candidates = 0
+    condition_candidates = 0
     detail_fetches = 0
 
     for raw in raw_index[:max_jobs]:
@@ -115,10 +151,14 @@ def greenhouse_discovery_jobs(
         if index_job is None:
             continue
         city_candidates += 1
+        index_match = match_job_conditions(index_job, conditions_config, description_chars=index_description_chars)
+        if not index_match.allowed:
+            continue
+        condition_candidates += 1
         if should_skip_evaluated(state, index_job, raw, force=force):
             continue
         if detail_fetches >= max_detail_fetches:
-            break
+            continue
         detail_fetches += 1
         try:
             detail_raw = fetch_greenhouse_detail(source, raw.get("external_id"), fetcher=fetcher)
@@ -136,10 +176,17 @@ def greenhouse_discovery_jobs(
         if detail_job is None:
             continue
         source_updated_at = job_source_updated_at(detail_raw) or job_source_updated_at(raw)
+        detail_match = match_job_conditions(detail_job, conditions_config, description_chars=detail_description_chars)
+        detail_match_payload = detail_match.to_dict()
+        if not detail_match.allowed:
+            rejected_jobs.append((detail_job, source_updated_at, f"conditions_filter:{detail_match.rejection_reason}", detail_match_payload))
+            continue
         if source_filter_allows(detail_job, source):
-            detail_jobs.append(detail_job)
+            tagged_job = job_with_condition_tags(detail_job, detail_match)
+            detail_jobs.append(tagged_job)
+            condition_matches[tagged_job.stable_key] = detail_match_payload
         else:
-            rejected_jobs.append((detail_job, source_updated_at, "hard_filter"))
+            rejected_jobs.append((detail_job, source_updated_at, "hard_filter", detail_match_payload))
 
     result = SourceResult(
         source_id=index_result.source_id,
@@ -152,7 +199,7 @@ def greenhouse_discovery_jobs(
         etag=index_result.etag,
         last_modified=index_result.last_modified,
     )
-    return detail_jobs, rejected_jobs, result, cache_update, city_candidates
+    return DiscoveryBatch(detail_jobs, rejected_jobs, result, cache_update, city_candidates, condition_candidates, condition_matches)
 
 
 def generic_discovery_jobs(
@@ -160,9 +207,10 @@ def generic_discovery_jobs(
     *,
     default_cities: set[str],
     allow_global_remote: bool,
+    conditions_config: dict[str, Any],
     cache: dict[str, Any],
     fetcher: FetchFn = fetch_url,
-) -> tuple[list[JobPosting], list[tuple[JobPosting, str, str]], SourceResult, dict[str, str], int]:
+) -> DiscoveryBatch:
     jobs, result, cache_update = fetch_source(
         source,
         default_cities=default_cities,
@@ -170,9 +218,25 @@ def generic_discovery_jobs(
         cache=cache,
         fetcher=fetcher,
     )
-    filtered = [job for job in jobs if source_filter_allows(job, source)]
-    rejected = [(job, "", "hard_filter") for job in jobs if job not in filtered]
-    return filtered, rejected, result, cache_update, len(jobs)
+    detail_description_chars = int(source.get("detail_condition_description_chars", 8000))
+    filtered: list[JobPosting] = []
+    rejected: list[RejectedJob] = []
+    condition_matches: dict[str, dict[str, Any]] = {}
+    condition_candidates = 0
+    for job in jobs:
+        match = match_job_conditions(job, conditions_config, description_chars=detail_description_chars)
+        match_payload = match.to_dict()
+        if not match.allowed:
+            rejected.append((job, job.posted_at, f"conditions_filter:{match.rejection_reason}", match_payload))
+            continue
+        condition_candidates += 1
+        if source_filter_allows(job, source):
+            tagged_job = job_with_condition_tags(job, match)
+            filtered.append(tagged_job)
+            condition_matches[tagged_job.stable_key] = match_payload
+        else:
+            rejected.append((job, job.posted_at, "hard_filter", match_payload))
+    return DiscoveryBatch(filtered, rejected, result, cache_update, len(jobs), condition_candidates, condition_matches)
 
 
 def rank_candidates(
@@ -208,6 +272,7 @@ def run_discovery(
     write: bool = False,
     force: bool = False,
     sources_path: str = "",
+    conditions_path: str = "",
     deterministic_fallback: bool | None = None,
     now: datetime | None = None,
     state_store: JsonStore | None = None,
@@ -221,49 +286,60 @@ def run_discovery(
     store = state_store or state_store_from_env(root)
     state = store.load()
     sources_config = load_sources(root, sources_path)
+    conditions_config = load_conditions(root, conditions_path)
     defaults = sources_config.get("defaults", {}) if isinstance(sources_config.get("defaults", {}), dict) else {}
-    default_cities = set(config.allowed_cities)
+    condition_cities = conditions_allowed_cities(conditions_config)
+    default_cities = condition_cities or set(config.allowed_cities)
     if defaults.get("cities"):
-        default_cities = canonical_city_set(defaults.get("cities"))
-    allow_global_remote = bool(defaults.get("allow_global_remote", config.allow_global_remote))
+        source_default_cities = canonical_city_set(defaults.get("cities"))
+        default_cities = (source_default_cities & condition_cities) if condition_cities else source_default_cities
+        if not default_cities:
+            default_cities = source_default_cities
+    allow_global_remote = bool(conditions_config.get("allow_global_remote", defaults.get("allow_global_remote", config.allow_global_remote)))
     state_source_cache = state.get("source_cache", {})
 
     all_jobs: list[JobPosting] = []
-    rejected_jobs: list[tuple[JobPosting, str, str]] = []
+    rejected_jobs: list[RejectedJob] = []
     source_results: list[SourceResult] = []
     source_cache_updates: dict[str, Any] = {}
+    condition_matches_by_key: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
     city_candidate_count = 0
+    condition_candidate_count = 0
 
     for source in enabled_sources(sources_config):
         source_id = str(source.get("id") or source.get("name") or "source")
         adapter = str(source.get("adapter", "")).strip().lower()
         if adapter == "greenhouse":
-            jobs, rejected, result, cache_update, city_candidates = greenhouse_discovery_jobs(
+            batch = greenhouse_discovery_jobs(
                 source,
                 default_cities=default_cities,
                 allow_global_remote=allow_global_remote,
+                conditions_config=conditions_config,
                 state=state,
                 force=force,
                 cache=state_source_cache.get(source_id, {}),
                 fetcher=fetcher,
             )
         else:
-            jobs, rejected, result, cache_update, city_candidates = generic_discovery_jobs(
+            batch = generic_discovery_jobs(
                 source,
                 default_cities=default_cities,
                 allow_global_remote=allow_global_remote,
+                conditions_config=conditions_config,
                 cache=state_source_cache.get(source_id, {}),
                 fetcher=fetcher,
             )
-        source_results.append(result)
-        all_jobs.extend(jobs)
-        rejected_jobs.extend(rejected)
-        city_candidate_count += city_candidates
-        if cache_update:
-            source_cache_updates[source_id] = cache_update
-        if not result.ok:
-            errors.append(f"source_failed:{source_id}:{result.error}")
+        source_results.append(batch.result)
+        all_jobs.extend(batch.jobs)
+        rejected_jobs.extend(batch.rejected_jobs)
+        condition_matches_by_key.update(batch.condition_matches)
+        city_candidate_count += batch.city_candidates
+        condition_candidate_count += batch.condition_candidates
+        if batch.cache_update:
+            source_cache_updates[source_id] = batch.cache_update
+        if not batch.result.ok:
+            errors.append(f"source_failed:{source_id}:{batch.result.error}")
 
     candidates = dedupe_jobs(all_jobs)
     allow_fallback = config.deterministic_fallback if deterministic_fallback is None else deterministic_fallback
@@ -278,7 +354,7 @@ def run_discovery(
     included_by_key = {item.job.stable_key: item for item in selected if item.include}
 
     state_updates: dict[str, Any] = {}
-    for job, source_updated_at, rejection_reason in rejected_jobs:
+    for job, source_updated_at, rejection_reason, condition_match in rejected_jobs:
         state_updates[job.stable_key] = evaluated_entry(
             job,
             status="rejected",
@@ -286,6 +362,7 @@ def run_discovery(
             week_key=week_key,
             source_updated_at=source_updated_at,
             rejection_reason=rejection_reason,
+            condition_match=condition_match,
         )
     if not ranker_failed:
         for job in candidates:
@@ -298,11 +375,13 @@ def run_discovery(
                 source_updated_at=job.posted_at,
                 ranked=ranked,
                 rejection_reason="" if ranked else "not_selected",
+                condition_match=condition_matches_by_key.get(job.stable_key, {}),
             )
 
     included = [item for item in selected if item.include]
     included.sort(key=lambda item: item.score, reverse=True)
     included = [RankedOpportunity(**{**item.__dict__, "rank": index}) for index, item in enumerate(included, start=1)]
+    group_counts = role_group_counts(condition_matches_by_key.values())
     finished_at = now_iso()
     run_payload = {
         "run_id": run_id,
@@ -313,9 +392,11 @@ def run_discovery(
         "finished_at": finished_at,
         "source_results": [item.to_dict() for item in source_results],
         "city_candidate_count": city_candidate_count,
+        "condition_candidate_count": condition_candidate_count,
         "candidate_count": len(candidates),
         "included_count": len(included),
         "rejected_count": len([item for item in state_updates.values() if item.get("status") == "rejected"]),
+        "role_group_counts": group_counts,
         "errors": errors,
     }
 
@@ -340,5 +421,5 @@ def run_discovery(
             "evaluated_updates": len(state_updates),
             "evaluated_jobs": len(state.get("evaluated_jobs", {})),
         },
-        "included_jobs": [item.to_dict() for item in included],
+        "included_jobs": [ranked_payload(item, condition_matches_by_key) for item in included],
     }

@@ -43,6 +43,8 @@ services:
         sync: false
       - key: GITHUB_SOURCES_PATH
         value: sources.json
+      - key: GITHUB_CONDITIONS_PATH
+        value: conditions.json
 
   - type: cron
     name: opportunity-radar-discovery
@@ -70,6 +72,8 @@ services:
         sync: false
       - key: GITHUB_SOURCES_PATH
         value: sources.json
+      - key: GITHUB_CONDITIONS_PATH
+        value: conditions.json
 
   - type: cron
     name: opportunity-radar-weekly

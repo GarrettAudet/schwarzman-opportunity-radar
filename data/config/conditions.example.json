@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "locations": ["Beijing", "Dubai", "Shenzhen", "New York", "San Francisco", "Sydney"],
+  "allow_global_remote": false,
+  "max_years_experience": 5,
+  "exclude_any": [
+    "intern",
+    "internship",
+    "student program",
+    "director",
+    "senior director",
+    "vp",
+    "vice president",
+    "head of",
+    "principal",
+    "10+ years",
+    "9+ years",
+    "8+ years",
+    "7+ years",
+    "6+ years"
+  ],
+  "role_groups": [
+    {
+      "id": "strategy_operations",
+      "label": "Strategy / Operations",
+      "include_any": [
+        "strategy",
+        "strategic",
+        "operations",
+        "business operations",
+        "bizops",
+        "corporate development",
+        "chief of staff",
+        "special projects",
+        "general manager",
+        "operator",
+        "ops"
+      ]
+    },
+    {
+      "id": "policy_ai",
+      "label": "Policy / AI Governance",
+      "include_any": [
+        "policy",
+        "public policy",
+        "ai governance",
+        "responsible ai",
+        "trust and safety",
+        "frontier ai",
+        "ai safety",
+        "international affairs",
+        "government affairs"
+      ]
+    },
+    {
+      "id": "investing_venture",
+      "label": "Investing / Venture",
+      "include_any": [
+        "venture",
+        "investment",
+        "investor",
+        "investing",
+        "portfolio",
+        "private equity",
+        "growth equity"
+      ]
+    },
+    {
+      "id": "product_growth_partnerships",
+      "label": "Product / Growth / Partnerships",
+      "include_any": [
+        "product",
+        "growth",
+        "partnership",
+        "partnerships",
+        "business development",
+        "go-to-market",
+        "gtm",
+        "market expansion"
+      ]
+    },
+    {
+      "id": "frontier_tech_startups",
+      "label": "Frontier Tech / Startups",
+      "include_any": [
+        "startup",
+        "startups",
+        "founder",
+        "ai",
+        "artificial intelligence",
+        "machine learning",
+        "climate",
+        "fintech",
+        "crypto",
+        "infrastructure"
+      ]
+    }
+  ]
+}

@@ -1,8 +1,9 @@
-﻿# Local secrets and environment
+# Local secrets and environment
 .env
 
 # Local/private source config and durable state
 data/config/sources.local.json
+data/config/conditions.local.json
 data/state/*.json
 
 # Generated run outputs

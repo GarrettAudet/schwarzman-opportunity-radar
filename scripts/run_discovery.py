@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing; this is the default")
     parser.add_argument("--force", action="store_true", help="Re-evaluate unchanged jobs")
     parser.add_argument("--sources", default="", help="Optional sources JSON path")
+    parser.add_argument("--conditions", default="", help="Optional conditions JSON path")
     parser.add_argument("--deterministic-fallback", action="store_true", help="Use deterministic ranking if OpenRouter is unavailable")
     parser.add_argument("--json", action="store_true", help="Print full JSON")
     args = parser.parse_args()
@@ -27,6 +28,7 @@ def main() -> int:
         write=bool(args.write),
         force=bool(args.force),
         sources_path=args.sources,
+        conditions_path=args.conditions,
         deterministic_fallback=True if args.deterministic_fallback else None,
     )
     if args.json:
@@ -34,14 +36,20 @@ def main() -> int:
     else:
         print(f"Discovery run: {result['run_id']}")
         print(f"City candidates: {result['city_candidate_count']}")
+        print(f"Condition matches: {result['condition_candidate_count']}")
         print(f"Ranked candidates: {result['candidate_count']}")
         print(f"Included: {result['included_count']}")
+        if result.get("role_group_counts"):
+            groups = ", ".join(f"{key}={value}" for key, value in result["role_group_counts"].items())
+            print(f"Role groups: {groups}")
         print(f"Evaluated updates: {result['state_summary']['evaluated_updates']}")
         print(f"State mutated: {result['state_summary']['mutated']}")
         print(f"Errors: {', '.join(result['errors']) if result['errors'] else 'none'}")
         for item in result["included_jobs"][:10]:
             job = item["job"]
-            print(f"- {job['company']} - {job['title']} ({job['city']}) score={int(round(item['score']))}")
+            groups = item.get("condition_matches", {}).get("role_group_ids", [])
+            group_text = f" [{', '.join(groups)}]" if groups else ""
+            print(f"- {job['company']} - {job['title']} ({job['city']}) score={int(round(item['score']))}{group_text}")
     if any(error.startswith("ranker_failed") for error in result["errors"]):
         return 1
     return 0

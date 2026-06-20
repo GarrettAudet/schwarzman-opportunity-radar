@@ -54,6 +54,14 @@ class FakeGreenhouseFetcher:
                                 "updated_at": "2026-06-15T12:00:00-04:00",
                                 "departments": [{"name": "Operations"}],
                             },
+                            {
+                                "id": 400,
+                                "title": "Account Executive, Enterprise Sales",
+                                "absolute_url": "https://example.com/jobs/400",
+                                "location": {"name": "New York City, NY"},
+                                "updated_at": "2026-06-15T13:00:00-04:00",
+                                "departments": [{"name": "Sales"}],
+                            },
                         ]
                     }
                 ),
@@ -119,33 +127,62 @@ def write_sources(path: Path) -> None:
     )
 
 
+def write_conditions(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "locations": ["New York", "San Francisco"],
+                "max_years_experience": 5,
+                "exclude_any": ["intern"],
+                "role_groups": [
+                    {
+                        "id": "strategy_operations",
+                        "label": "Strategy / Operations",
+                        "include_any": ["strategy", "operations", "product"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 class DiscoveryTests(unittest.TestCase):
     def test_greenhouse_discovery_prefilters_details_and_weekly_digest_reads_state(self) -> None:
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
             with tempfile.TemporaryDirectory() as tmp:
                 sources_path = Path(tmp) / "sources.json"
+                conditions_path = Path(tmp) / "conditions.json"
                 write_sources(sources_path)
+                write_conditions(conditions_path)
                 store = FileJsonStore(Path(tmp) / "state.json")
                 fetcher = FakeGreenhouseFetcher()
 
                 dry_run = run_discovery(
                     ROOT,
                     sources_path=str(sources_path),
+                    conditions_path=str(conditions_path),
                     deterministic_fallback=True,
                     state_store=store,
                     fetcher=fetcher,
                 )
+                self.assertEqual(dry_run["city_candidate_count"], 3)
+                self.assertEqual(dry_run["condition_candidate_count"], 2)
                 self.assertEqual(dry_run["candidate_count"], 1)
                 self.assertEqual(dry_run["included_count"], 1)
+                self.assertEqual(dry_run["included_jobs"][0]["condition_matches"]["role_group_ids"], ["strategy_operations"])
                 self.assertFalse((Path(tmp) / "state.json").exists())
                 self.assertTrue(any(url.endswith("/jobs/100") for url in fetcher.urls))
                 self.assertTrue(any(url.endswith("/jobs/200") for url in fetcher.urls))
                 self.assertFalse(any(url.endswith("/jobs/300") for url in fetcher.urls))
+                self.assertFalse(any(url.endswith("/jobs/400") for url in fetcher.urls))
 
                 write_run = run_discovery(
                     ROOT,
                     write=True,
                     sources_path=str(sources_path),
+                    conditions_path=str(conditions_path),
                     deterministic_fallback=True,
                     state_store=store,
                     fetcher=FakeGreenhouseFetcher(),
@@ -155,6 +192,8 @@ class DiscoveryTests(unittest.TestCase):
                 statuses = {entry["job"]["external_id"]: entry["status"] for entry in state["evaluated_jobs"].values()}
                 self.assertEqual(statuses["100"], "included")
                 self.assertEqual(statuses["200"], "rejected")
+                rejected = next(entry for entry in state["evaluated_jobs"].values() if entry["job"]["external_id"] == "200")
+                self.assertEqual(rejected["rejection_reason"], "conditions_filter:years_experience")
 
                 digest = run_digest(ROOT, from_state=True, state_store=store)
                 self.assertEqual(digest.candidate_count, 1)
