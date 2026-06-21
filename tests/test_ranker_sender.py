@@ -1,13 +1,14 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
 import unittest
 from unittest.mock import patch
 
+from opportunity_radar.microsoft_graph import email_payload, microsoft_graph_send_config_errors
 from opportunity_radar.models import JobPosting
 from opportunity_radar.ranker import rank_deterministically, rank_with_llm
-from opportunity_radar.sender import TwilioWhatsAppSender
+from opportunity_radar.sender import MicrosoftGraphEmailSender, TwilioWhatsAppSender
 from opportunity_radar.twilio_whatsapp import twilio_send_config_errors
 
 
@@ -114,6 +115,27 @@ class RankerSenderTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=True):
             errors = twilio_send_config_errors(recipients=["whatsapp:+15552223333"], content_sid="HX123", messaging_service_sid="MG123")
         self.assertEqual(errors, [])
+
+    def test_microsoft_graph_preflight_reports_missing_config(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            errors = microsoft_graph_send_config_errors(recipients=["jobs@example.com"])
+        self.assertEqual(errors, ["MICROSOFT_CLIENT_ID is not set", "MICROSOFT_REFRESH_TOKEN is not set"])
+
+    def test_microsoft_graph_email_payload(self) -> None:
+        payload = email_payload(recipient="mailto:jobs@example.com", subject="Weekly", body="Digest", save_to_sent_items=False)
+        self.assertEqual(payload["message"]["subject"], "Weekly")
+        self.assertEqual(payload["message"]["toRecipients"][0]["emailAddress"]["address"], "jobs@example.com")
+        self.assertEqual(payload["message"]["body"]["content"], "Digest")
+        self.assertFalse(payload["saveToSentItems"])
+
+    @patch("opportunity_radar.sender.send_email")
+    def test_microsoft_graph_sender(self, send_email) -> None:  # type: ignore[no-untyped-def]
+        send_email.return_value = {"id": "graph:202"}
+        result = MicrosoftGraphEmailSender(subject="Weekly").send("jobs@example.com", "Digest")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.provider, "microsoft_graph_email")
+        self.assertEqual(result.message_ids, ["graph:202"])
+        send_email.assert_called_once_with("jobs@example.com", "Digest", subject="Weekly")
 
 
 if __name__ == "__main__":

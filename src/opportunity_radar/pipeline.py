@@ -14,8 +14,9 @@ from .filtering import dedupe_jobs, remove_seen_jobs, source_filter_allows
 from .models import DigestRun, JobPosting, RankedOpportunity, SourceResult, now_iso
 from .ranker import rank_deterministically, rank_with_llm
 from .scheduling import should_send_now, week_key_for
-from .sender import DryRunSender, Sender, TwilioWhatsAppSender
+from .sender import DryRunSender, MicrosoftGraphEmailSender, Sender, TwilioWhatsAppSender, normalize_send_provider
 from .twilio_whatsapp import twilio_send_config_errors
+from .microsoft_graph import microsoft_graph_send_config_errors
 from .state import JsonStore, load_json_from_github, state_store_from_env
 
 
@@ -134,7 +135,25 @@ def sender_for_run(config: Any, *, dry_run: bool, sender: Sender | None = None) 
         return sender
     if dry_run:
         return DryRunSender()
-    return TwilioWhatsAppSender(content_sid=config.twilio_content_sid, messaging_service_sid=config.twilio_messaging_service_sid)
+    provider = normalize_send_provider(str(config.send_provider))
+    if provider == "microsoft_graph_email":
+        return MicrosoftGraphEmailSender(subject=config.email_subject)
+    if provider == "twilio_whatsapp":
+        return TwilioWhatsAppSender(content_sid=config.twilio_content_sid, messaging_service_sid=config.twilio_messaging_service_sid)
+    raise ValueError(f"unsupported_send_provider:{config.send_provider}")
+
+
+def send_config_errors(config: Any, *, recipients: list[str]) -> list[str]:
+    provider = normalize_send_provider(str(config.send_provider))
+    if provider == "microsoft_graph_email":
+        return microsoft_graph_send_config_errors(recipients=recipients)
+    if provider == "twilio_whatsapp":
+        return twilio_send_config_errors(
+            recipients=recipients,
+            content_sid=config.twilio_content_sid,
+            messaging_service_sid=config.twilio_messaging_service_sid,
+        )
+    return [f"unsupported_send_provider:{config.send_provider}"]
 
 
 def send_selected_digest(
@@ -151,11 +170,7 @@ def send_selected_digest(
     if send and not ranker_failed and (selected or config.send_empty_digest):
         recipients = config.recipients
         if sender is None:
-            config_errors = twilio_send_config_errors(
-                recipients=recipients,
-                content_sid=config.twilio_content_sid,
-                messaging_service_sid=config.twilio_messaging_service_sid,
-            )
+            config_errors = send_config_errors(config, recipients=recipients)
             if config_errors:
                 errors.extend(error for error in config_errors if error not in errors)
                 return recipient_results

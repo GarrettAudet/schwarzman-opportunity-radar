@@ -56,6 +56,24 @@ class SendPreflightTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["errors"], ["TWILIO_WHATSAPP_FROM is not set"])
 
+    def test_microsoft_graph_email_provider_is_ready(self) -> None:
+        env = {
+            "OPPORTUNITY_SEND_PROVIDER": "microsoft_graph_email",
+            "OPPORTUNITY_RECIPIENTS": "jobs@example.com",
+            "OPPORTUNITY_EMAIL_SUBJECT": "OpportunityRadar test",
+            "MICROSOFT_CLIENT_ID": "client-id",
+            "MICROSOFT_REFRESH_TOKEN": "refresh-token",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, env, clear=True):
+                result = check_send_ready(Path(tmp))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["provider"], "microsoft_graph_email")
+        self.assertEqual(result["recipient_count"], 1)
+        self.assertEqual(result["subject"], "OpportunityRadar test")
+        self.assertFalse(result["requires_from"])
+        self.assertEqual(result["errors"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

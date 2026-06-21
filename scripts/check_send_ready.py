@@ -12,7 +12,7 @@ from opportunity_radar.send_preflight import check_send_ready  # noqa: E402
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Check whether OpportunityRadar is configured for Twilio WhatsApp sending.")
+    parser = argparse.ArgumentParser(description="Check whether OpportunityRadar is configured for the selected delivery provider.")
     parser.add_argument("--root", default=".", help="Repository root")
     parser.add_argument("--json", action="store_true", help="Print full JSON")
     args = parser.parse_args()
@@ -24,9 +24,12 @@ def main() -> int:
         print(f"Send ready: {'yes' if result['ok'] else 'no'}")
         print(f"Provider: {result['provider']}")
         print(f"Recipients: {result['recipient_count']}")
-        print(f"Template: {'yes' if result['uses_template'] else 'no'}")
-        print(f"Messaging service: {'yes' if result['uses_messaging_service'] else 'no'}")
-        print(f"Requires TWILIO_WHATSAPP_FROM: {'yes' if result['requires_from'] else 'no'}")
+        if result["provider"] == "twilio_whatsapp":
+            print(f"Template: {'yes' if result['uses_template'] else 'no'}")
+            print(f"Messaging service: {'yes' if result['uses_messaging_service'] else 'no'}")
+            print(f"Requires TWILIO_WHATSAPP_FROM: {'yes' if result['requires_from'] else 'no'}")
+        if result["provider"] == "microsoft_graph_email":
+            print(f"Subject: {result['subject']}")
         print(f"Errors: {', '.join(result['errors']) if result['errors'] else 'none'}")
     return 0 if result["ok"] else 1
 

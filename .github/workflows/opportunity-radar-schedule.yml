@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: Task to run manually. Manual all-preview never sends WhatsApp messages.
+        description: Task to run manually. Manual all-preview never sends configured messages.
         required: true
         default: all-preview
         type: choice
@@ -41,6 +41,8 @@ jobs:
       OPPORTUNITY_TIMEZONE: ${{ vars.OPPORTUNITY_TIMEZONE || 'America/Edmonton' }}
       OPPORTUNITY_SEND_DOW: ${{ vars.OPPORTUNITY_SEND_DOW || 'MON' }}
       OPPORTUNITY_SEND_HOUR: ${{ vars.OPPORTUNITY_SEND_HOUR || '9' }}
+      OPPORTUNITY_SEND_PROVIDER: ${{ vars.OPPORTUNITY_SEND_PROVIDER || 'twilio_whatsapp' }}
+      OPPORTUNITY_EMAIL_SUBJECT: ${{ vars.OPPORTUNITY_EMAIL_SUBJECT || 'OpportunityRadar weekly jobs' }}
       OPPORTUNITY_MAX_JOBS: ${{ vars.OPPORTUNITY_MAX_JOBS || '30' }}
       OPPORTUNITY_MAX_JOBS_PER_COMPANY: ${{ vars.OPPORTUNITY_MAX_JOBS_PER_COMPANY || '2' }}
       OPPORTUNITY_CITIES: ${{ vars.OPPORTUNITY_CITIES || 'Beijing,Dubai,Shenzhen,New York,San Francisco,Sydney' }}
@@ -52,6 +54,14 @@ jobs:
       TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
       TWILIO_WHATSAPP_CONTENT_SID: ${{ secrets.TWILIO_WHATSAPP_CONTENT_SID }}
       TWILIO_MESSAGING_SERVICE_SID: ${{ secrets.TWILIO_MESSAGING_SERVICE_SID }}
+      MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+      MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+      MICROSOFT_REFRESH_TOKEN: ${{ secrets.MICROSOFT_REFRESH_TOKEN }}
+      MICROSOFT_TENANT_ID: ${{ vars.MICROSOFT_TENANT_ID || 'common' }}
+      MICROSOFT_LOGIN_BASE_URL: ${{ vars.MICROSOFT_LOGIN_BASE_URL || 'https://login.microsoftonline.com' }}
+      MICROSOFT_GRAPH_BASE_URL: ${{ vars.MICROSOFT_GRAPH_BASE_URL || 'https://graph.microsoft.com/v1.0' }}
+      MICROSOFT_USER_ID: ${{ vars.MICROSOFT_USER_ID || '' }}
+      MICROSOFT_SAVE_TO_SENT_ITEMS: ${{ vars.MICROSOFT_SAVE_TO_SENT_ITEMS || 'true' }}
       GITHUB_STATE_REPO: ${{ secrets.OPPORTUNITY_STATE_REPO }}
       GITHUB_STATE_TOKEN: ${{ secrets.OPPORTUNITY_STATE_TOKEN }}
       GITHUB_STATE_PATH: ${{ vars.OPPORTUNITY_STATE_PATH || 'opportunity-state.json' }}
@@ -106,7 +116,7 @@ jobs:
           fi
           python scripts/run_discovery.py --root . --write ${args}
 
-      - name: Check WhatsApp send readiness
+      - name: Check send readiness
         if: >-
           ${{
             (github.event_name == 'schedule' && vars.OPPORTUNITY_SCHEDULER_ENABLED == 'true' && github.event.schedule == '0 * * * MON') ||

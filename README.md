@@ -1,6 +1,6 @@
 # OpportunityRadar
 
-OpportunityRadar sends a weekly WhatsApp digest of high-signal jobs for Schwarzman Scholars. It focuses on roles in Beijing, Dubai, Shenzhen, New York, San Francisco, and Sydney, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
+OpportunityRadar sends a weekly digest of high-signal jobs for Schwarzman Scholars through either Twilio WhatsApp or Microsoft Graph email. It focuses on roles in Beijing, Dubai, Shenzhen, New York, San Francisco, and Sydney, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
 
 The project is intentionally built around adapters and durable state so one broken career page does not break the whole weekly digest.
 
@@ -12,8 +12,8 @@ The project is intentionally built around adapters and durable state so one brok
 - Applies deterministic condition filters before the LLM, including posting recency, target locations, role groups, exclude terms, and the 0-5 years-of-experience requirement.
 - Stores daily evaluated opportunities in durable JSON state, then sends the weekly digest from unsent included jobs.
 - Uses `docs/opportunity-criteria.md` to guide LLM judgment for what counts as a cool Scholar-relevant role.
-- Sends a WhatsApp-safe weekly digest through Twilio.
-- Supports approved Twilio WhatsApp templates for proactive notifications.
+- Sends a WhatsApp-safe weekly digest through Twilio, or a plain-text email digest through Microsoft Graph for Outlook/Microsoft 365 accounts.
+- Supports approved Twilio WhatsApp templates for proactive notifications and Microsoft delegated `Mail.Send` for email delivery.
 - Exposes protected preview and run endpoints for manual checks.
 - Stores durable state in local JSON for development or a private GitHub repo in production.
 
@@ -31,7 +31,7 @@ flowchart LR
     H <--> C
     I[Weekly GitHub Actions Scheduler] --> J[Digest From Unsent Winners]
     J <--> C
-    J --> K[Twilio WhatsApp Sender]
+    J --> K[Delivery Sender]
     L[Protected API] --> J
     M[Criteria Markdown] --> G
 ```
@@ -87,7 +87,7 @@ Send to configured recipients from evaluated state:
 python scripts\run_weekly_digest.py --root . --send --from-state
 ```
 
-Check whether the current environment is configured for Twilio WhatsApp sending without sending anything:
+Check whether the current environment is configured for the selected delivery provider without sending anything:
 
 ```powershell
 python scripts\check_send_ready.py --root .
@@ -113,6 +113,7 @@ Important env vars:
 
 ```text
 OPPORTUNITY_API_TOKEN=<optional bearer token for API endpoints>
+OPPORTUNITY_SEND_PROVIDER=twilio_whatsapp
 OPPORTUNITY_RECIPIENTS=whatsapp:+15551234567,whatsapp:+15557654321
 OPPORTUNITY_TIMEZONE=America/Edmonton
 OPPORTUNITY_SEND_DOW=MON
@@ -134,6 +135,23 @@ GITHUB_DISCOVERY_PATH=discovery.json
 GITHUB_SOURCES_PATH=<optional sources.json>
 GITHUB_CONDITIONS_PATH=conditions.json
 ```
+
+For Microsoft Graph email delivery, set:
+
+```text
+OPPORTUNITY_SEND_PROVIDER=microsoft_graph_email
+OPPORTUNITY_RECIPIENTS=jobs-list@example.com
+OPPORTUNITY_EMAIL_SUBJECT=OpportunityRadar weekly jobs
+MICROSOFT_CLIENT_ID=<app registration client id>
+MICROSOFT_REFRESH_TOKEN=<one-time delegated refresh token>
+MICROSOFT_TENANT_ID=common
+MICROSOFT_GRAPH_BASE_URL=https://graph.microsoft.com/v1.0
+MICROSOFT_LOGIN_BASE_URL=https://login.microsoftonline.com
+MICROSOFT_USER_ID=<optional user id or email for /users/{id}/sendMail>
+MICROSOFT_SAVE_TO_SENT_ITEMS=true
+```
+
+Run `python scripts\microsoft_auth.py --client-id <client-id> --tenant common` to complete the one-time Microsoft login and 2FA flow. If the Tsinghua tenant blocks user consent, the script will fail during login and the sender account will need tenant approval or a different email account.
 
 For proactive WhatsApp sends, prefer `TWILIO_WHATSAPP_CONTENT_SID` with an approved template. If `TWILIO_MESSAGING_SERVICE_SID` is set with the template SID, `TWILIO_WHATSAPP_FROM` is not required; otherwise set `TWILIO_WHATSAPP_FROM` to your approved WhatsApp sender.
 

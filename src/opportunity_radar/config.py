@@ -16,6 +16,8 @@ DEFAULT_SEND_DOW = "MON"
 DEFAULT_SEND_HOUR = 9
 DEFAULT_MAX_JOBS = 30
 DEFAULT_MAX_JOBS_PER_COMPANY = 2
+DEFAULT_SEND_PROVIDER = "twilio_whatsapp"
+DEFAULT_EMAIL_SUBJECT = "OpportunityRadar weekly jobs"
 
 
 def load_env(root: Path) -> None:
@@ -53,6 +55,7 @@ class RuntimeConfig:
     timezone: str
     send_dow: str
     send_hour: int
+    send_provider: str
     recipients: list[str]
     max_jobs: int
     max_jobs_per_company: int
@@ -64,6 +67,7 @@ class RuntimeConfig:
     twilio_content_sid: str
     twilio_messaging_service_sid: str
     send_empty_digest: bool
+    email_subject: str
 
 
 def load_runtime_config(root: Path) -> RuntimeConfig:
@@ -73,6 +77,7 @@ def load_runtime_config(root: Path) -> RuntimeConfig:
         timezone=os.environ.get("OPPORTUNITY_TIMEZONE", DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE,
         send_dow=os.environ.get("OPPORTUNITY_SEND_DOW", DEFAULT_SEND_DOW).strip().upper() or DEFAULT_SEND_DOW,
         send_hour=int(os.environ.get("OPPORTUNITY_SEND_HOUR", str(DEFAULT_SEND_HOUR))),
+        send_provider=os.environ.get("OPPORTUNITY_SEND_PROVIDER", DEFAULT_SEND_PROVIDER).strip() or DEFAULT_SEND_PROVIDER,
         recipients=env_csv("OPPORTUNITY_RECIPIENTS"),
         max_jobs=max(1, int(os.environ.get("OPPORTUNITY_MAX_JOBS", str(DEFAULT_MAX_JOBS)))),
         max_jobs_per_company=max(1, int(os.environ.get("OPPORTUNITY_MAX_JOBS_PER_COMPANY", str(DEFAULT_MAX_JOBS_PER_COMPANY)))),
@@ -84,6 +89,7 @@ def load_runtime_config(root: Path) -> RuntimeConfig:
         twilio_content_sid=os.environ.get("TWILIO_WHATSAPP_CONTENT_SID", "").strip(),
         twilio_messaging_service_sid=os.environ.get("TWILIO_MESSAGING_SERVICE_SID", "").strip(),
         send_empty_digest=env_bool("OPPORTUNITY_SEND_EMPTY_DIGEST", True),
+        email_subject=os.environ.get("OPPORTUNITY_EMAIL_SUBJECT", DEFAULT_EMAIL_SUBJECT).strip() or DEFAULT_EMAIL_SUBJECT,
     )
 
 
