@@ -9,7 +9,8 @@ from opportunity_radar.google_workspace import gmail_message_payload, gmail_send
 from opportunity_radar.microsoft_graph import email_payload, microsoft_graph_send_config_errors
 from opportunity_radar.models import JobPosting
 from opportunity_radar.ranker import rank_deterministically, rank_with_llm
-from opportunity_radar.sender import GmailEmailSender, MicrosoftGraphEmailSender, TwilioWhatsAppSender
+from opportunity_radar.sender import GmailEmailSender, GmailSmtpSender, MicrosoftGraphEmailSender, TwilioWhatsAppSender
+from opportunity_radar.smtp_email import smtp_message, smtp_send_config_errors
 from opportunity_radar.twilio_whatsapp import twilio_send_config_errors
 
 
@@ -173,6 +174,32 @@ class RankerSenderTests(unittest.TestCase):
         self.assertEqual(result.provider, "gmail_email")
         self.assertEqual(result.message_ids, ["gmail-123"])
         send_gmail_message.assert_called_once()
+
+    def test_smtp_preflight_reports_missing_config(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            errors = smtp_send_config_errors(recipients=["group@example.com"])
+        self.assertEqual(errors, ["SMTP_USERNAME is not set", "SMTP_APP_PASSWORD is not set", "SMTP_FROM is not set"])
+
+    def test_smtp_message_payload(self) -> None:
+        with patch.dict(os.environ, {"SMTP_USERNAME": "schwarzmanjobupdates@gmail.com"}, clear=True):
+            message = smtp_message(recipient="group@example.com", subject="Weekly", body="Digest")
+        self.assertEqual(message["To"], "group@example.com")
+        self.assertEqual(message["From"], "schwarzmanjobupdates@gmail.com")
+        self.assertEqual(message["Subject"], "Weekly")
+
+    @patch("opportunity_radar.sender.send_smtp_email")
+    def test_gmail_smtp_sender(self, send_smtp_email) -> None:  # type: ignore[no-untyped-def]
+        send_smtp_email.return_value = {"id": "smtp-message-id"}
+        result = GmailSmtpSender(subject="Weekly", from_address="Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>").send("group@example.com", "Digest")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.provider, "gmail_smtp")
+        self.assertEqual(result.message_ids, ["smtp-message-id"])
+        send_smtp_email.assert_called_once_with(
+            "group@example.com",
+            "Digest",
+            subject="Weekly",
+            from_address="Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>",
+        )
 
 
 if __name__ == "__main__":

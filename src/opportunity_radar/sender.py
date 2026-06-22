@@ -5,6 +5,7 @@ from typing import Protocol
 from .google_workspace import refresh_google_access_token, send_gmail_message
 from .microsoft_graph import send_email
 from .models import RecipientResult
+from .smtp_email import send_smtp_email
 from .twilio_whatsapp import send_template, send_text
 
 
@@ -19,6 +20,9 @@ def normalize_send_provider(value: str) -> str:
         "email": "gmail_email",
         "gmail": "gmail_email",
         "gmail_email": "gmail_email",
+        "gmail_smtp": "gmail_smtp",
+        "smtp": "gmail_smtp",
+        "smtp_email": "gmail_smtp",
         "google": "gmail_email",
         "google_email": "gmail_email",
         "graph_email": "microsoft_graph_email",
@@ -105,6 +109,23 @@ class GmailEmailSender:
                 subject=self.subject,
                 from_address=self.from_address,
             )
+            message_id = str(response.get("id", "")) if isinstance(response, dict) else ""
+            ids = [message_id] if message_id else []
+            return RecipientResult(recipient=recipient, ok=True, provider=self.provider, message_ids=ids)
+        except Exception as exc:
+            return RecipientResult(recipient=recipient, ok=False, provider=self.provider, error=f"{type(exc).__name__}: {exc}")
+
+
+class GmailSmtpSender:
+    provider = "gmail_smtp"
+
+    def __init__(self, *, subject: str = "", from_address: str = "") -> None:
+        self.subject = subject
+        self.from_address = from_address
+
+    def send(self, recipient: str, message: str) -> RecipientResult:
+        try:
+            response = send_smtp_email(recipient, message, subject=self.subject, from_address=self.from_address)
             message_id = str(response.get("id", "")) if isinstance(response, dict) else ""
             ids = [message_id] if message_id else []
             return RecipientResult(recipient=recipient, ok=True, provider=self.provider, message_ids=ids)

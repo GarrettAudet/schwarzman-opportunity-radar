@@ -1,6 +1,6 @@
 # OpportunityRadar
 
-OpportunityRadar sends a weekly digest of high-signal jobs for Schwarzman Scholars through Twilio WhatsApp, Gmail, or Microsoft Graph email. It focuses on roles in Beijing, Dubai, Shenzhen, New York, San Francisco, and Sydney, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
+OpportunityRadar sends a weekly digest of high-signal jobs for Schwarzman Scholars through Twilio WhatsApp, Gmail SMTP/API, or Microsoft Graph email. It focuses on roles in Beijing, Dubai, Shenzhen, New York, San Francisco, and Sydney, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
 
 The project is intentionally built around adapters and durable state so one broken career page does not break the whole weekly digest.
 
@@ -12,8 +12,8 @@ The project is intentionally built around adapters and durable state so one brok
 - Applies deterministic condition filters before the LLM, including posting recency, target locations, role groups, exclude terms, and the 0-5 years-of-experience requirement.
 - Stores daily evaluated opportunities in durable JSON state, then sends the weekly digest from unsent included jobs.
 - Uses `docs/opportunity-criteria.md` to guide LLM judgment for what counts as a cool Scholar-relevant role.
-- Sends a WhatsApp-safe weekly digest through Twilio, or a plain-text email digest through Gmail/Microsoft Graph.
-- Supports approved Twilio WhatsApp templates, Gmail `gmail.send`, Microsoft delegated `Mail.Send`, and Google Sheets-backed recipient lists.
+- Sends a WhatsApp-safe weekly digest through Twilio, or a plain-text email digest through Gmail SMTP/API or Microsoft Graph.
+- Supports approved Twilio WhatsApp templates, Gmail SMTP app passwords, Gmail `gmail.send`, Microsoft delegated `Mail.Send`, Google Groups, and Google Sheets-backed recipient lists.
 - Exposes protected preview and run endpoints for manual checks.
 - Stores durable state in local JSON for development or a private GitHub repo in production.
 
@@ -137,7 +137,23 @@ GITHUB_SOURCES_PATH=<optional sources.json>
 GITHUB_CONDITIONS_PATH=conditions.json
 ```
 
-For Gmail delivery with a Google Sheet mailing list, set:
+For Gmail SMTP delivery through a Google Group, set:
+
+```text
+OPPORTUNITY_SEND_PROVIDER=gmail_smtp
+OPPORTUNITY_RECIPIENTS=schwarzman-job-updates@googlegroups.com
+OPPORTUNITY_EMAIL_SUBJECT=OpportunityRadar weekly jobs
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=schwarzmanjobupdates@gmail.com
+SMTP_APP_PASSWORD=<Google app password>
+SMTP_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
+SMTP_USE_STARTTLS=true
+```
+
+This path avoids Google Cloud entirely. Manage membership in Google Groups; OpportunityRadar sends one email to the group address.
+
+For Gmail API delivery with a Google Sheet mailing list, set:
 
 ```text
 OPPORTUNITY_SEND_PROVIDER=gmail_email

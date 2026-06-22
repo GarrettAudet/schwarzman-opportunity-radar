@@ -110,6 +110,24 @@ class SendPreflightTests(unittest.TestCase):
         self.assertEqual(result["recipient_source"], "google_sheet")
         self.assertEqual(result["recipient_sheet_id"], "sheet-id")
 
+    def test_gmail_smtp_provider_is_ready(self) -> None:
+        env = {
+            "OPPORTUNITY_SEND_PROVIDER": "gmail_smtp",
+            "OPPORTUNITY_RECIPIENTS": "schwarzman-job-updates@googlegroups.com",
+            "OPPORTUNITY_EMAIL_SUBJECT": "OpportunityRadar test",
+            "SMTP_USERNAME": "schwarzmanjobupdates@gmail.com",
+            "SMTP_APP_PASSWORD": "app-password",
+            "SMTP_FROM": "Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, env, clear=True):
+                result = check_send_ready(Path(tmp))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["provider"], "gmail_smtp")
+        self.assertEqual(result["recipient_count"], 1)
+        self.assertEqual(result["recipient_source"], "env")
+        self.assertEqual(result["errors"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

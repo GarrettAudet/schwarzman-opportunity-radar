@@ -14,10 +14,11 @@ from .filtering import dedupe_jobs, remove_seen_jobs, source_filter_allows
 from .models import DigestRun, JobPosting, RankedOpportunity, SourceResult, now_iso
 from .ranker import rank_deterministically, rank_with_llm
 from .scheduling import should_send_now, week_key_for
-from .sender import DryRunSender, GmailEmailSender, MicrosoftGraphEmailSender, Sender, TwilioWhatsAppSender, normalize_send_provider
+from .sender import DryRunSender, GmailEmailSender, GmailSmtpSender, MicrosoftGraphEmailSender, Sender, TwilioWhatsAppSender, normalize_send_provider
 from .twilio_whatsapp import twilio_send_config_errors
 from .microsoft_graph import microsoft_graph_send_config_errors
 from .google_workspace import gmail_send_config_errors, load_google_sheet_recipients
+from .smtp_email import smtp_send_config_errors
 from .state import JsonStore, load_json_from_github, state_store_from_env
 
 
@@ -137,6 +138,8 @@ def sender_for_run(config: Any, *, dry_run: bool, sender: Sender | None = None) 
     if dry_run:
         return DryRunSender()
     provider = normalize_send_provider(str(config.send_provider))
+    if provider == "gmail_smtp":
+        return GmailSmtpSender(subject=config.email_subject, from_address=config.google_gmail_from)
     if provider == "gmail_email":
         return GmailEmailSender(subject=config.email_subject, from_address=config.google_gmail_from)
     if provider == "microsoft_graph_email":
@@ -158,6 +161,8 @@ def load_delivery_recipients(config: Any) -> list[str]:
 
 def send_config_errors(config: Any, *, recipients: list[str]) -> list[str]:
     provider = normalize_send_provider(str(config.send_provider))
+    if provider == "gmail_smtp":
+        return smtp_send_config_errors(recipients=recipients)
     if provider == "gmail_email":
         return gmail_send_config_errors(recipients=recipients, allow_sheet=bool(config.google_recipients_sheet_id))
     if provider == "microsoft_graph_email":

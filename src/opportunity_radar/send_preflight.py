@@ -7,6 +7,7 @@ from .config import load_runtime_config
 from .google_workspace import gmail_send_config_errors, load_google_sheet_recipients
 from .microsoft_graph import microsoft_graph_send_config_errors
 from .sender import normalize_send_provider
+from .smtp_email import smtp_send_config_errors
 from .twilio_whatsapp import twilio_send_config_errors
 
 
@@ -31,7 +32,9 @@ def check_send_ready(root: Path) -> dict[str, Any]:
             except Exception as exc:
                 recipients = []
                 recipient_errors.append(f"recipient_load_failed:{type(exc).__name__}: {exc}")
-    if provider == "gmail_email":
+    if provider == "gmail_smtp":
+        errors = smtp_send_config_errors(recipients=recipients)
+    elif provider == "gmail_email":
         errors = gmail_send_config_errors(recipients=recipients, allow_sheet=bool(config.google_recipients_sheet_id)) + recipient_errors
     elif provider == "microsoft_graph_email":
         errors = microsoft_graph_send_config_errors(recipients=recipients)

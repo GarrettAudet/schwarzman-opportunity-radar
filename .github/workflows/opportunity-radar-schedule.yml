@@ -69,6 +69,12 @@ jobs:
       GOOGLE_RECIPIENTS_SHEET_ID: ${{ vars.GOOGLE_RECIPIENTS_SHEET_ID || '' }}
       GOOGLE_RECIPIENTS_RANGE: ${{ vars.GOOGLE_RECIPIENTS_RANGE || 'Recipients!A:C' }}
       GOOGLE_OAUTH_SCOPES: ${{ vars.GOOGLE_OAUTH_SCOPES || '' }}
+      SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
+      SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_APP_PASSWORD: ${{ secrets.SMTP_APP_PASSWORD }}
+      SMTP_FROM: ${{ vars.SMTP_FROM || vars.GOOGLE_GMAIL_FROM || '' }}
+      SMTP_USE_STARTTLS: ${{ vars.SMTP_USE_STARTTLS || 'true' }}
       GITHUB_STATE_REPO: ${{ secrets.OPPORTUNITY_STATE_REPO }}
       GITHUB_STATE_TOKEN: ${{ secrets.OPPORTUNITY_STATE_TOKEN }}
       GITHUB_STATE_PATH: ${{ vars.OPPORTUNITY_STATE_PATH || 'opportunity-state.json' }}
