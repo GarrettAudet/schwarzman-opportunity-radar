@@ -14,9 +14,10 @@ from .filtering import dedupe_jobs, remove_seen_jobs, source_filter_allows
 from .models import DigestRun, JobPosting, RankedOpportunity, SourceResult, now_iso
 from .ranker import rank_deterministically, rank_with_llm
 from .scheduling import should_send_now, week_key_for
-from .sender import DryRunSender, MicrosoftGraphEmailSender, Sender, TwilioWhatsAppSender, normalize_send_provider
+from .sender import DryRunSender, GmailEmailSender, MicrosoftGraphEmailSender, Sender, TwilioWhatsAppSender, normalize_send_provider
 from .twilio_whatsapp import twilio_send_config_errors
 from .microsoft_graph import microsoft_graph_send_config_errors
+from .google_workspace import gmail_send_config_errors, load_google_sheet_recipients
 from .state import JsonStore, load_json_from_github, state_store_from_env
 
 
@@ -136,6 +137,8 @@ def sender_for_run(config: Any, *, dry_run: bool, sender: Sender | None = None) 
     if dry_run:
         return DryRunSender()
     provider = normalize_send_provider(str(config.send_provider))
+    if provider == "gmail_email":
+        return GmailEmailSender(subject=config.email_subject, from_address=config.google_gmail_from)
     if provider == "microsoft_graph_email":
         return MicrosoftGraphEmailSender(subject=config.email_subject)
     if provider == "twilio_whatsapp":
@@ -143,8 +146,20 @@ def sender_for_run(config: Any, *, dry_run: bool, sender: Sender | None = None) 
     raise ValueError(f"unsupported_send_provider:{config.send_provider}")
 
 
+def load_delivery_recipients(config: Any) -> list[str]:
+    provider = normalize_send_provider(str(config.send_provider))
+    if provider == "gmail_email" and config.google_recipients_sheet_id:
+        return load_google_sheet_recipients(
+            spreadsheet_id=config.google_recipients_sheet_id,
+            range_name=config.google_recipients_range,
+        )
+    return config.recipients
+
+
 def send_config_errors(config: Any, *, recipients: list[str]) -> list[str]:
     provider = normalize_send_provider(str(config.send_provider))
+    if provider == "gmail_email":
+        return gmail_send_config_errors(recipients=recipients, allow_sheet=bool(config.google_recipients_sheet_id))
     if provider == "microsoft_graph_email":
         return microsoft_graph_send_config_errors(recipients=recipients)
     if provider == "twilio_whatsapp":
@@ -168,7 +183,11 @@ def send_selected_digest(
     recipient_results = []
     ranker_failed = any(error.startswith("ranker_failed") for error in errors)
     if send and not ranker_failed and (selected or config.send_empty_digest):
-        recipients = config.recipients
+        try:
+            recipients = load_delivery_recipients(config)
+        except Exception as exc:
+            errors.append(f"recipient_load_failed:{type(exc).__name__}: {exc}")
+            return recipient_results
         if sender is None:
             config_errors = send_config_errors(config, recipients=recipients)
             if config_errors:

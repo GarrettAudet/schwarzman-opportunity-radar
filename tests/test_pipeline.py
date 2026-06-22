@@ -130,6 +130,30 @@ class PipelineTests(unittest.TestCase):
                 self.assertEqual(result.recipient_results, [])
                 self.assertFalse(result.state_summary["mutated"])
 
+    @patch("opportunity_radar.pipeline.load_google_sheet_recipients")
+    def test_send_uses_google_sheet_recipients(self, load_google_sheet_recipients) -> None:  # type: ignore[no-untyped-def]
+        load_google_sheet_recipients.return_value = ["one@example.com", "two@example.com"]
+        env = {
+            "OPPORTUNITY_SEND_PROVIDER": "gmail_email",
+            "GOOGLE_RECIPIENTS_SHEET_ID": "sheet-id",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            with tempfile.TemporaryDirectory() as tmp:
+                store = FileJsonStore(Path(tmp) / "state.json")
+                sender = FakeSender()
+                result = run_digest(
+                    ROOT,
+                    send=True,
+                    force=True,
+                    sources_path="tests/fixtures/sources.fixture.json",
+                    deterministic_fallback=True,
+                    include_seen=True,
+                    state_store=store,
+                    sender=sender,
+                )
+        self.assertTrue(result.state_summary["mutated"])
+        self.assertEqual([recipient for recipient, _message in sender.sent], ["one@example.com", "two@example.com"])
+
 
 class PipelineDiversityTests(unittest.TestCase):
     def test_diversify_ranked_caps_company_repeats(self) -> None:

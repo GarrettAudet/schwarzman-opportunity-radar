@@ -62,6 +62,13 @@ jobs:
       MICROSOFT_GRAPH_BASE_URL: ${{ vars.MICROSOFT_GRAPH_BASE_URL || 'https://graph.microsoft.com/v1.0' }}
       MICROSOFT_USER_ID: ${{ vars.MICROSOFT_USER_ID || '' }}
       MICROSOFT_SAVE_TO_SENT_ITEMS: ${{ vars.MICROSOFT_SAVE_TO_SENT_ITEMS || 'true' }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+      GOOGLE_GMAIL_FROM: ${{ vars.GOOGLE_GMAIL_FROM || '' }}
+      GOOGLE_RECIPIENTS_SHEET_ID: ${{ vars.GOOGLE_RECIPIENTS_SHEET_ID || '' }}
+      GOOGLE_RECIPIENTS_RANGE: ${{ vars.GOOGLE_RECIPIENTS_RANGE || 'Recipients!A:C' }}
+      GOOGLE_OAUTH_SCOPES: ${{ vars.GOOGLE_OAUTH_SCOPES || '' }}
       GITHUB_STATE_REPO: ${{ secrets.OPPORTUNITY_STATE_REPO }}
       GITHUB_STATE_TOKEN: ${{ secrets.OPPORTUNITY_STATE_TOKEN }}
       GITHUB_STATE_PATH: ${{ vars.OPPORTUNITY_STATE_PATH || 'opportunity-state.json' }}

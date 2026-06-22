@@ -1,6 +1,6 @@
 # OpportunityRadar
 
-OpportunityRadar sends a weekly digest of high-signal jobs for Schwarzman Scholars through either Twilio WhatsApp or Microsoft Graph email. It focuses on roles in Beijing, Dubai, Shenzhen, New York, San Francisco, and Sydney, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
+OpportunityRadar sends a weekly digest of high-signal jobs for Schwarzman Scholars through Twilio WhatsApp, Gmail, or Microsoft Graph email. It focuses on roles in Beijing, Dubai, Shenzhen, New York, San Francisco, and Sydney, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
 
 The project is intentionally built around adapters and durable state so one broken career page does not break the whole weekly digest.
 
@@ -12,8 +12,8 @@ The project is intentionally built around adapters and durable state so one brok
 - Applies deterministic condition filters before the LLM, including posting recency, target locations, role groups, exclude terms, and the 0-5 years-of-experience requirement.
 - Stores daily evaluated opportunities in durable JSON state, then sends the weekly digest from unsent included jobs.
 - Uses `docs/opportunity-criteria.md` to guide LLM judgment for what counts as a cool Scholar-relevant role.
-- Sends a WhatsApp-safe weekly digest through Twilio, or a plain-text email digest through Microsoft Graph for Outlook/Microsoft 365 accounts.
-- Supports approved Twilio WhatsApp templates for proactive notifications and Microsoft delegated `Mail.Send` for email delivery.
+- Sends a WhatsApp-safe weekly digest through Twilio, or a plain-text email digest through Gmail/Microsoft Graph.
+- Supports approved Twilio WhatsApp templates, Gmail `gmail.send`, Microsoft delegated `Mail.Send`, and Google Sheets-backed recipient lists.
 - Exposes protected preview and run endpoints for manual checks.
 - Stores durable state in local JSON for development or a private GitHub repo in production.
 
@@ -115,6 +115,7 @@ Important env vars:
 OPPORTUNITY_API_TOKEN=<optional bearer token for API endpoints>
 OPPORTUNITY_SEND_PROVIDER=twilio_whatsapp
 OPPORTUNITY_RECIPIENTS=whatsapp:+15551234567,whatsapp:+15557654321
+OPPORTUNITY_EMAIL_SUBJECT=OpportunityRadar weekly jobs
 OPPORTUNITY_TIMEZONE=America/Edmonton
 OPPORTUNITY_SEND_DOW=MON
 OPPORTUNITY_SEND_HOUR=9
@@ -135,6 +136,21 @@ GITHUB_DISCOVERY_PATH=discovery.json
 GITHUB_SOURCES_PATH=<optional sources.json>
 GITHUB_CONDITIONS_PATH=conditions.json
 ```
+
+For Gmail delivery with a Google Sheet mailing list, set:
+
+```text
+OPPORTUNITY_SEND_PROVIDER=gmail_email
+OPPORTUNITY_EMAIL_SUBJECT=OpportunityRadar weekly jobs
+GOOGLE_GMAIL_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
+GOOGLE_CLIENT_ID=<Google OAuth client id>
+GOOGLE_CLIENT_SECRET=<Google OAuth client secret>
+GOOGLE_REFRESH_TOKEN=<one-time refresh token>
+GOOGLE_RECIPIENTS_SHEET_ID=<spreadsheet id>
+GOOGLE_RECIPIENTS_RANGE=Recipients!A:C
+```
+
+Run `python scripts\google_auth.py --client-id <client-id> --client-secret <client-secret>` to complete the one-time Google login and 2FA flow as `schwarzmanjobupdates@gmail.com`. The Google Sheet is the source of truth for delivery: use columns `email`, `name`, and optional `status`; deleted rows and rows marked `unsubscribed`, `inactive`, `removed`, or `deleted` are not sent.
 
 For Microsoft Graph email delivery, set:
 

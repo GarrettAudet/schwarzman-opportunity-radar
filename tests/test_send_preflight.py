@@ -74,6 +74,42 @@ class SendPreflightTests(unittest.TestCase):
         self.assertFalse(result["requires_from"])
         self.assertEqual(result["errors"], [])
 
+    def test_gmail_email_provider_is_ready_with_env_recipients(self) -> None:
+        env = {
+            "OPPORTUNITY_SEND_PROVIDER": "gmail_email",
+            "OPPORTUNITY_RECIPIENTS": "jobs@example.com",
+            "OPPORTUNITY_EMAIL_SUBJECT": "OpportunityRadar test",
+            "GOOGLE_CLIENT_ID": "client-id",
+            "GOOGLE_CLIENT_SECRET": "client-secret",
+            "GOOGLE_REFRESH_TOKEN": "refresh-token",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, env, clear=True):
+                result = check_send_ready(Path(tmp))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["provider"], "gmail_email")
+        self.assertEqual(result["recipient_count"], 1)
+        self.assertEqual(result["recipient_source"], "env")
+        self.assertEqual(result["errors"], [])
+
+    @patch("opportunity_radar.send_preflight.load_google_sheet_recipients")
+    def test_gmail_email_provider_reads_recipient_sheet(self, load_google_sheet_recipients) -> None:  # type: ignore[no-untyped-def]
+        load_google_sheet_recipients.return_value = ["one@example.com", "two@example.com"]
+        env = {
+            "OPPORTUNITY_SEND_PROVIDER": "gmail_email",
+            "GOOGLE_CLIENT_ID": "client-id",
+            "GOOGLE_CLIENT_SECRET": "client-secret",
+            "GOOGLE_REFRESH_TOKEN": "refresh-token",
+            "GOOGLE_RECIPIENTS_SHEET_ID": "sheet-id",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, env, clear=True):
+                result = check_send_ready(Path(tmp))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["recipient_count"], 2)
+        self.assertEqual(result["recipient_source"], "google_sheet")
+        self.assertEqual(result["recipient_sheet_id"], "sheet-id")
+
 
 if __name__ == "__main__":
     unittest.main()

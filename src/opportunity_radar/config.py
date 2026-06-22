@@ -18,6 +18,7 @@ DEFAULT_MAX_JOBS = 30
 DEFAULT_MAX_JOBS_PER_COMPANY = 2
 DEFAULT_SEND_PROVIDER = "twilio_whatsapp"
 DEFAULT_EMAIL_SUBJECT = "OpportunityRadar weekly jobs"
+DEFAULT_GOOGLE_RECIPIENTS_RANGE = "Recipients!A:C"
 
 
 def load_env(root: Path) -> None:
@@ -68,6 +69,9 @@ class RuntimeConfig:
     twilio_messaging_service_sid: str
     send_empty_digest: bool
     email_subject: str
+    google_gmail_from: str
+    google_recipients_sheet_id: str
+    google_recipients_range: str
 
 
 def load_runtime_config(root: Path) -> RuntimeConfig:
@@ -90,6 +94,9 @@ def load_runtime_config(root: Path) -> RuntimeConfig:
         twilio_messaging_service_sid=os.environ.get("TWILIO_MESSAGING_SERVICE_SID", "").strip(),
         send_empty_digest=env_bool("OPPORTUNITY_SEND_EMPTY_DIGEST", True),
         email_subject=os.environ.get("OPPORTUNITY_EMAIL_SUBJECT", DEFAULT_EMAIL_SUBJECT).strip() or DEFAULT_EMAIL_SUBJECT,
+        google_gmail_from=os.environ.get("GOOGLE_GMAIL_FROM", os.environ.get("OPPORTUNITY_EMAIL_FROM", "")).strip(),
+        google_recipients_sheet_id=os.environ.get("GOOGLE_RECIPIENTS_SHEET_ID", "").strip(),
+        google_recipients_range=os.environ.get("GOOGLE_RECIPIENTS_RANGE", DEFAULT_GOOGLE_RECIPIENTS_RANGE).strip() or DEFAULT_GOOGLE_RECIPIENTS_RANGE,
     )
 
 

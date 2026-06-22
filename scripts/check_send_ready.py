@@ -24,12 +24,15 @@ def main() -> int:
         print(f"Send ready: {'yes' if result['ok'] else 'no'}")
         print(f"Provider: {result['provider']}")
         print(f"Recipients: {result['recipient_count']}")
+        print(f"Recipient source: {result.get('recipient_source', 'env')}")
         if result["provider"] == "twilio_whatsapp":
             print(f"Template: {'yes' if result['uses_template'] else 'no'}")
             print(f"Messaging service: {'yes' if result['uses_messaging_service'] else 'no'}")
             print(f"Requires TWILIO_WHATSAPP_FROM: {'yes' if result['requires_from'] else 'no'}")
-        if result["provider"] == "microsoft_graph_email":
+        if result["provider"] in {"gmail_email", "microsoft_graph_email"}:
             print(f"Subject: {result['subject']}")
+        if result.get("recipient_sheet_id"):
+            print(f"Recipient sheet: {result['recipient_sheet_id']}")
         print(f"Errors: {', '.join(result['errors']) if result['errors'] else 'none'}")
     return 0 if result["ok"] else 1
 

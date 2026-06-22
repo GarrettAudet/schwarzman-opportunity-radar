@@ -5,10 +5,11 @@ import os
 import unittest
 from unittest.mock import patch
 
+from opportunity_radar.google_workspace import gmail_message_payload, gmail_send_config_errors, parse_recipient_rows
 from opportunity_radar.microsoft_graph import email_payload, microsoft_graph_send_config_errors
 from opportunity_radar.models import JobPosting
 from opportunity_radar.ranker import rank_deterministically, rank_with_llm
-from opportunity_radar.sender import MicrosoftGraphEmailSender, TwilioWhatsAppSender
+from opportunity_radar.sender import GmailEmailSender, MicrosoftGraphEmailSender, TwilioWhatsAppSender
 from opportunity_radar.twilio_whatsapp import twilio_send_config_errors
 
 
@@ -136,6 +137,42 @@ class RankerSenderTests(unittest.TestCase):
         self.assertEqual(result.provider, "microsoft_graph_email")
         self.assertEqual(result.message_ids, ["graph:202"])
         send_email.assert_called_once_with("jobs@example.com", "Digest", subject="Weekly")
+
+    def test_gmail_preflight_reports_missing_config(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            errors = gmail_send_config_errors(recipients=["jobs@example.com"])
+        self.assertEqual(errors, ["GOOGLE_CLIENT_ID is not set", "GOOGLE_CLIENT_SECRET is not set", "GOOGLE_REFRESH_TOKEN is not set"])
+
+    def test_gmail_message_payload(self) -> None:
+        payload = gmail_message_payload(
+            recipient="mailto:jobs@example.com",
+            subject="Weekly",
+            body="Digest",
+            from_address="Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>",
+        )
+        self.assertIn("raw", payload)
+
+    def test_parse_recipient_rows_filters_status_and_dedupes(self) -> None:
+        rows = [
+            ["email", "name", "status"],
+            ["one@example.com", "One", "active"],
+            ["two@example.com", "Two", "unsubscribed"],
+            ["One@Example.com", "Duplicate", ""],
+            ["three@example.com", "Three", ""],
+            ["not-an-email", "Nope", ""],
+        ]
+        self.assertEqual(parse_recipient_rows(rows), ["one@example.com", "three@example.com"])
+
+    @patch("opportunity_radar.sender.send_gmail_message")
+    @patch("opportunity_radar.sender.refresh_google_access_token")
+    def test_gmail_sender(self, refresh_google_access_token, send_gmail_message) -> None:  # type: ignore[no-untyped-def]
+        refresh_google_access_token.return_value = {"access_token": "access"}
+        send_gmail_message.return_value = {"id": "gmail-123"}
+        result = GmailEmailSender(subject="Weekly", from_address="Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>").send("jobs@example.com", "Digest")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.provider, "gmail_email")
+        self.assertEqual(result.message_ids, ["gmail-123"])
+        send_gmail_message.assert_called_once()
 
 
 if __name__ == "__main__":
