@@ -77,6 +77,37 @@ class GithubJsonStore:
     def _url(self) -> str:
         return f"https://api.github.com/repos/{self.repo}/contents/{quote(self.path)}?ref={quote(self.ref)}"
 
+    def _content_from_item(self, item: dict[str, Any]) -> str:
+        content = str(item.get("content") or "")
+        encoding = str(item.get("encoding") or "").lower()
+        if content:
+            if encoding == "base64":
+                return base64.b64decode(content.encode("utf-8")).decode("utf-8-sig")
+            return content
+
+        download_url = str(item.get("download_url") or "").strip()
+        download_error: urllib.error.HTTPError | None = None
+        if download_url:
+            try:
+                with urllib.request.urlopen(self._request(download_url), timeout=30) as response:
+                    return response.read().decode("utf-8-sig")
+            except urllib.error.HTTPError as exc:
+                download_error = exc
+
+        sha = str(item.get("sha") or "").strip()
+        if sha:
+            blob_url = f"https://api.github.com/repos/{self.repo}/git/blobs/{quote(sha)}"
+            with urllib.request.urlopen(self._request(blob_url), timeout=30) as response:
+                blob = json.loads(response.read().decode("utf-8"))
+            blob_content = str(blob.get("content") or "")
+            if str(blob.get("encoding") or "").lower() == "base64":
+                return base64.b64decode(blob_content.encode("utf-8")).decode("utf-8-sig")
+            return blob_content
+
+        if download_error is not None:
+            raise download_error
+        return ""
+
     def load_with_sha(self) -> tuple[dict[str, Any], str]:
         try:
             with urllib.request.urlopen(self._request(self._url()), timeout=30) as response:
@@ -85,7 +116,7 @@ class GithubJsonStore:
             if exc.code == 404:
                 return empty_state(), ""
             raise
-        content = base64.b64decode(str(item.get("content", "")).encode("utf-8")).decode("utf-8-sig")
+        content = self._content_from_item(item)
         return json.loads(content), str(item.get("sha", ""))
 
     def load(self) -> dict[str, Any]:
