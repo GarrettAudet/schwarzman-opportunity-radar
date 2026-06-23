@@ -92,7 +92,7 @@ def load_runtime_config(root: Path) -> RuntimeConfig:
         api_token=os.environ.get("OPPORTUNITY_API_TOKEN", "").strip(),
         twilio_content_sid=os.environ.get("TWILIO_WHATSAPP_CONTENT_SID", "").strip(),
         twilio_messaging_service_sid=os.environ.get("TWILIO_MESSAGING_SERVICE_SID", "").strip(),
-        send_empty_digest=env_bool("OPPORTUNITY_SEND_EMPTY_DIGEST", True),
+        send_empty_digest=env_bool("OPPORTUNITY_SEND_EMPTY_DIGEST", False),
         email_subject=os.environ.get("OPPORTUNITY_EMAIL_SUBJECT", DEFAULT_EMAIL_SUBJECT).strip() or DEFAULT_EMAIL_SUBJECT,
         google_gmail_from=os.environ.get("GOOGLE_GMAIL_FROM", os.environ.get("OPPORTUNITY_EMAIL_FROM", "")).strip(),
         google_recipients_sheet_id=os.environ.get("GOOGLE_RECIPIENTS_SHEET_ID", "").strip(),

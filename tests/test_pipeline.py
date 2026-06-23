@@ -154,6 +154,24 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(result.state_summary["mutated"])
         self.assertEqual([recipient for recipient, _message in sender.sent], ["one@example.com", "two@example.com"])
 
+    def test_empty_state_send_does_not_email_by_default(self) -> None:
+        env = {"OPPORTUNITY_RECIPIENTS": "group@example.com"}
+        with patch.dict(os.environ, env, clear=True):
+            with tempfile.TemporaryDirectory() as tmp:
+                store = FileJsonStore(Path(tmp) / "state.json")
+                sender = FakeSender()
+                result = run_digest(
+                    ROOT,
+                    send=True,
+                    force=True,
+                    from_state=True,
+                    state_store=store,
+                    sender=sender,
+                )
+        self.assertIn("no_evaluated_jobs", result.errors)
+        self.assertEqual(sender.sent, [])
+        self.assertFalse(result.state_summary["mutated"])
+
 
 class PipelineDiversityTests(unittest.TestCase):
     def test_diversify_ranked_caps_company_repeats(self) -> None:
