@@ -32,6 +32,40 @@ class FakeClient:
         """
 
 
+
+class FillClient:
+    def chat(self, **_kwargs: object) -> str:
+        return """
+        {
+          "opportunities": [
+            {
+              "key": "fixture:1",
+              "score": 94,
+              "include": true,
+              "scholar_fit_reason": "Exceptional strategy role.",
+              "why_cool": "Exceptional strategy role.",
+              "risk_flags": []
+            },
+            {
+              "key": "fixture:2",
+              "score": 86,
+              "include": false,
+              "scholar_fit_reason": "Strong but not top-tier.",
+              "why_cool": "Strong product role.",
+              "risk_flags": []
+            },
+            {
+              "key": "fixture:3",
+              "score": 68,
+              "include": false,
+              "scholar_fit_reason": "Below threshold.",
+              "why_cool": "Below threshold.",
+              "risk_flags": []
+            }
+          ]
+        }
+        """
+
 class RankerSenderTests(unittest.TestCase):
     def test_llm_json_maps_to_job(self) -> None:
         job = JobPosting(
@@ -48,6 +82,27 @@ class RankerSenderTests(unittest.TestCase):
         self.assertEqual(len(ranked), 1)
         self.assertEqual(ranked[0].rank, 1)
         self.assertEqual(ranked[0].score, 91)
+
+
+    def test_llm_fill_uses_high_scored_jobs_to_reach_minimum(self) -> None:
+        jobs = [
+            JobPosting(
+                source_id="fixture",
+                source_name="Fixture",
+                external_id=str(index),
+                title=f"Role {index}",
+                company=f"Company {index}",
+                location_text="New York",
+                city="New York",
+                canonical_url=f"https://example.com/{index}",
+            )
+            for index in range(1, 4)
+        ]
+        ranked = rank_with_llm(jobs, criteria_text="Prefer strategy.", model="test", max_selected=3, min_selected=2, client=FillClient())  # type: ignore[arg-type]
+
+        self.assertEqual([item.job.external_id for item in ranked], ["1", "2"])
+        self.assertTrue(ranked[1].include)
+        self.assertIn("score_threshold_fill", ranked[1].risk_flags)
 
     def test_deterministic_fallback_selects_signal(self) -> None:
         job = JobPosting(

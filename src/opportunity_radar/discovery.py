@@ -54,6 +54,8 @@ def should_skip_evaluated(
     if not isinstance(entry, dict):
         return False
     source_updated_at = job_source_updated_at(raw)
+    if str(entry.get("rejection_reason", "")) == "conditions_filter:no_role_group":
+        return False
     if not source_updated_at:
         return False
     return str(entry.get("source_updated_at", "")) == source_updated_at
@@ -70,6 +72,9 @@ def evaluated_entry(
     rejection_reason: str = "",
     condition_match: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    job_payload = job.to_dict()
+    if status != "included":
+        job_payload["description_text"] = ""
     return {
         "status": status,
         "run_id": run_id,
@@ -82,7 +87,7 @@ def evaluated_entry(
         "risk_flags": list(ranked.risk_flags) if ranked else [],
         "rejection_reason": rejection_reason,
         "condition_matches": condition_match or {},
-        "job": job.to_dict(),
+        "job": job_payload,
     }
 
 
@@ -159,9 +164,8 @@ def greenhouse_discovery_jobs(
         if recent_ok:
             recent_city_candidates += 1
         index_match = match_job_conditions(index_job, conditions_config, description_chars=index_description_chars, now=now)
-        if not index_match.allowed:
+        if not index_match.allowed and index_match.rejection_reason != "no_role_group":
             continue
-        condition_candidates += 1
         if should_skip_evaluated(state, index_job, raw, force=force):
             continue
         if detail_fetches >= max_detail_fetches:
@@ -189,6 +193,7 @@ def greenhouse_discovery_jobs(
         if not detail_match.allowed:
             rejected_jobs.append((detail_job, source_updated_at, f"conditions_filter:{detail_match.rejection_reason}", detail_match_payload))
             continue
+        condition_candidates += 1
         if source_filter_allows(detail_job, source):
             tagged_job = job_with_condition_tags(detail_job, detail_match)
             detail_jobs.append(tagged_job)
@@ -258,6 +263,7 @@ def rank_candidates(
     *,
     model: str,
     max_selected: int,
+    min_selected: int,
     deterministic_fallback: bool,
 ) -> tuple[list[RankedOpportunity], list[str], bool]:
     if not jobs:
@@ -265,14 +271,14 @@ def rank_candidates(
     criteria_text = load_criteria(root)
     try:
         return (
-            rank_with_llm(jobs, criteria_text=criteria_text, model=model, max_selected=max_selected),
+            rank_with_llm(jobs, criteria_text=criteria_text, model=model, max_selected=max_selected, min_selected=min_selected),
             [],
             False,
         )
     except Exception as exc:
         if deterministic_fallback:
             return (
-                rank_deterministically(jobs, max_selected=max_selected),
+                rank_deterministically(jobs, max_selected=max_selected, min_selected=min_selected),
                 [f"ranker_fallback:{type(exc).__name__}"],
                 False,
             )
@@ -384,6 +390,7 @@ def run_discovery(
         candidates,
         model=config.rank_model,
         max_selected=max(config.max_jobs, len(candidates)),
+        min_selected=min(config.min_jobs, config.max_jobs),
         deterministic_fallback=bool(allow_fallback),
     )
     errors.extend(ranker_errors)

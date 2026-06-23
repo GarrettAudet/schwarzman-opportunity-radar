@@ -147,6 +147,7 @@ def rank_with_llm(
     criteria_text: str,
     model: str,
     max_selected: int,
+    min_selected: int = 0,
     client: OpenRouterClient | None = None,
 ) -> list[RankedOpportunity]:
     if not jobs:
@@ -179,7 +180,7 @@ Return:
   ]
 }}
 
-Include only jobs that are genuinely high-signal. Prefer fewer strong roles over filling the quota.
+Return one row for every candidate key. Aim for {min(max(0, min_selected), max_selected)}-{max_selected} digest roles when enough candidates score 70 or higher. Include only jobs that are genuinely high-signal; do not include jobs below 70.
 """
     text = client.chat(
         model=model,
@@ -189,7 +190,7 @@ Include only jobs that are genuinely high-signal. Prefer fewer strong roles over
         ],
         response_format={"type": "json_object"},
         temperature=0.0,
-        max_tokens=3600,
+        max_tokens=8000,
     )
     data = parse_json_object(text)
     rows = data.get("opportunities", [])
@@ -216,12 +217,30 @@ Include only jobs that are genuinely high-signal. Prefer fewer strong roles over
                 risk_flags=[str(flag).strip()[:120] for flag in row.get("risk_flags", []) if str(flag).strip()],
             )
         )
+    return select_ranked(ranked, max_selected=max_selected, min_selected=min_selected)
+
+
+def select_ranked(ranked: list[RankedOpportunity], *, max_selected: int, min_selected: int = 0) -> list[RankedOpportunity]:
     ranked.sort(key=lambda item: item.score, reverse=True)
-    selected = [item for item in ranked if item.include][:max_selected]
+    selected = [item for item in ranked if item.include]
+    target = min(max(0, min_selected), max_selected, len(ranked))
+    if len(selected) < target:
+        selected_keys = {item.job.stable_key for item in selected}
+        for item in ranked:
+            if len(selected) >= target:
+                break
+            if item.job.stable_key in selected_keys or item.score < 70:
+                continue
+            flags = list(item.risk_flags)
+            if "score_threshold_fill" not in flags:
+                flags.append("score_threshold_fill")
+            selected.append(RankedOpportunity(**{**item.__dict__, "include": True, "risk_flags": flags}))
+            selected_keys.add(item.job.stable_key)
+    selected = selected[:max_selected]
     return [RankedOpportunity(**{**item.__dict__, "rank": index}) for index, item in enumerate(selected, start=1)]
 
 
-def rank_deterministically(jobs: list[JobPosting], *, max_selected: int) -> list[RankedOpportunity]:
+def rank_deterministically(jobs: list[JobPosting], *, max_selected: int, min_selected: int = 0) -> list[RankedOpportunity]:
     ranked: list[RankedOpportunity] = []
     for job in jobs:
         score, reasons = deterministic_signal(job)
@@ -239,6 +258,4 @@ def rank_deterministically(jobs: list[JobPosting], *, max_selected: int) -> list
                 risk_flags=["deterministic_fallback"],
             )
         )
-    ranked.sort(key=lambda item: item.score, reverse=True)
-    selected = [item for item in ranked if item.include][:max_selected]
-    return [RankedOpportunity(**{**item.__dict__, "rank": index}) for index, item in enumerate(selected, start=1)]
+    return select_ranked(ranked, max_selected=max_selected, min_selected=min_selected)

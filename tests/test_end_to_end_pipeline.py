@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -108,7 +108,7 @@ class EndToEndPipelineTests(unittest.TestCase):
                     fetcher=RegistryGreenhouseFetcher(),
                 )
                 self.assertEqual(discovery["registry_boards_polled"], 1)
-                self.assertEqual(discovery["included_count"], 1)
+                self.assertEqual(discovery["included_count"], 2)
 
                 digest = run_digest(
                     ROOT,
@@ -118,8 +118,8 @@ class EndToEndPipelineTests(unittest.TestCase):
                     state_store=store,
                     sender=TwilioWhatsAppSender(content_sid="HX123", messaging_service_sid="MG123"),
                 )
-                self.assertEqual(digest.candidate_count, 1)
-                self.assertEqual(len(digest.selected_jobs), 1)
+                self.assertEqual(digest.candidate_count, 2)
+                self.assertEqual(len(digest.selected_jobs), 2)
                 self.assertEqual(len(digest.recipient_results), 1)
                 self.assertTrue(digest.recipient_results[0].ok)
                 self.assertTrue(digest.state_summary["mutated"])

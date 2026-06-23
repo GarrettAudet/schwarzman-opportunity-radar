@@ -19,6 +19,11 @@ on:
         required: false
         default: false
         type: boolean
+      force_discovery:
+        description: Re-evaluate jobs already present in state during manual discovery.
+        required: false
+        default: false
+        type: boolean
   schedule:
     # UTC schedules. The weekly sender still checks OPPORTUNITY_SEND_* locally.
     - cron: "0 14 * * MON" # registry refresh
@@ -44,6 +49,7 @@ jobs:
       OPPORTUNITY_SEND_PROVIDER: ${{ vars.OPPORTUNITY_SEND_PROVIDER || 'twilio_whatsapp' }}
       OPPORTUNITY_EMAIL_SUBJECT: ${{ vars.OPPORTUNITY_EMAIL_SUBJECT || 'OpportunityRadar weekly jobs' }}
       OPPORTUNITY_MAX_JOBS: ${{ vars.OPPORTUNITY_MAX_JOBS || '30' }}
+      OPPORTUNITY_MIN_JOBS: ${{ vars.OPPORTUNITY_MIN_JOBS || '15' }}
       OPPORTUNITY_MAX_JOBS_PER_COMPANY: ${{ vars.OPPORTUNITY_MAX_JOBS_PER_COMPANY || '2' }}
       OPPORTUNITY_CITIES: ${{ vars.OPPORTUNITY_CITIES || 'Beijing,Dubai,Shenzhen,New York,San Francisco,Sydney' }}
       OPPORTUNITY_RECIPIENTS: ${{ secrets.OPPORTUNITY_RECIPIENTS }}
@@ -69,6 +75,8 @@ jobs:
       GOOGLE_RECIPIENTS_SHEET_ID: ${{ vars.GOOGLE_RECIPIENTS_SHEET_ID || '' }}
       GOOGLE_RECIPIENTS_RANGE: ${{ vars.GOOGLE_RECIPIENTS_RANGE || 'Recipients!A:C' }}
       GOOGLE_OAUTH_SCOPES: ${{ vars.GOOGLE_OAUTH_SCOPES || '' }}
+      GOOGLE_CSE_API_KEY: ${{ secrets.GOOGLE_CSE_API_KEY }}
+      GOOGLE_CSE_CX: ${{ secrets.GOOGLE_CSE_CX }}
       SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
       SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
       SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
@@ -84,6 +92,7 @@ jobs:
       GITHUB_SOURCES_PATH: ${{ vars.OPPORTUNITY_SOURCES_PATH || '' }}
       MANUAL_TASK: ${{ inputs.task || '' }}
       DETERMINISTIC_FALLBACK: ${{ inputs.deterministic_fallback || 'false' }}
+      FORCE_DISCOVERY: ${{ inputs.force_discovery || 'false' }}
 
     steps:
       - name: Scheduled run guard
@@ -125,7 +134,10 @@ jobs:
         run: |
           args=""
           if [ "${DETERMINISTIC_FALLBACK}" = "true" ]; then
-            args="--deterministic-fallback"
+            args="${args} --deterministic-fallback"
+          fi
+          if [ "${FORCE_DISCOVERY}" = "true" ]; then
+            args="${args} --force"
           fi
           python scripts/run_discovery.py --root . --write ${args}
 

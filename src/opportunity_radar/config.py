@@ -15,6 +15,7 @@ DEFAULT_TIMEZONE = "America/Edmonton"
 DEFAULT_SEND_DOW = "MON"
 DEFAULT_SEND_HOUR = 9
 DEFAULT_MAX_JOBS = 30
+DEFAULT_MIN_JOBS = 15
 DEFAULT_MAX_JOBS_PER_COMPANY = 2
 DEFAULT_SEND_PROVIDER = "twilio_whatsapp"
 DEFAULT_EMAIL_SUBJECT = "OpportunityRadar weekly jobs"
@@ -59,6 +60,7 @@ class RuntimeConfig:
     send_provider: str
     recipients: list[str]
     max_jobs: int
+    min_jobs: int
     max_jobs_per_company: int
     allowed_cities: set[str]
     allow_global_remote: bool
@@ -84,6 +86,7 @@ def load_runtime_config(root: Path) -> RuntimeConfig:
         send_provider=os.environ.get("OPPORTUNITY_SEND_PROVIDER", DEFAULT_SEND_PROVIDER).strip() or DEFAULT_SEND_PROVIDER,
         recipients=env_csv("OPPORTUNITY_RECIPIENTS"),
         max_jobs=max(1, int(os.environ.get("OPPORTUNITY_MAX_JOBS", str(DEFAULT_MAX_JOBS)))),
+        min_jobs=max(0, int(os.environ.get("OPPORTUNITY_MIN_JOBS", str(DEFAULT_MIN_JOBS)))),
         max_jobs_per_company=max(1, int(os.environ.get("OPPORTUNITY_MAX_JOBS_PER_COMPANY", str(DEFAULT_MAX_JOBS_PER_COMPANY)))),
         allowed_cities=cities,
         allow_global_remote=env_bool("OPPORTUNITY_ALLOW_GLOBAL_REMOTE", False),

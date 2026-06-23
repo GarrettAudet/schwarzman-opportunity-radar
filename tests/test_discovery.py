@@ -52,6 +52,15 @@ class FakeGreenhouseFetcher:
                                 "departments": [{"name": "Operations"}],
                             },
                             {
+                                "id": 500,
+                                "title": "Associate",
+                                "absolute_url": "https://example.com/jobs/500",
+                                "location": {"name": "New York City, NY"},
+                                "first_published": "2026-06-16T11:00:00-04:00",
+                                "updated_at": "2026-06-16T11:00:00-04:00",
+                                "departments": [{"name": "General"}],
+                            },
+                            {
                                 "id": 300,
                                 "title": "Operations Associate",
                                 "absolute_url": "https://example.com/jobs/300",
@@ -106,6 +115,24 @@ class FakeGreenhouseFetcher:
                         "updated_at": "2026-06-15T11:00:00-04:00",
                         "departments": [{"name": "Operations"}],
                         "content": "Requires 8+ years of experience leading operations teams.",
+                    }
+                ),
+            )
+        if url.endswith("/jobs/500"):
+            return FetchResponse(
+                status=200,
+                url=url,
+                headers={},
+                body=json.dumps(
+                    {
+                        "id": 500,
+                        "title": "Associate",
+                        "absolute_url": "https://example.com/jobs/500",
+                        "location": {"name": "New York City, NY"},
+                        "first_published": "2026-06-16T11:00:00-04:00",
+                        "updated_at": "2026-06-16T11:00:00-04:00",
+                        "departments": [{"name": "General"}],
+                        "content": "Work on product strategy and special projects. 2 years of experience preferred.",
                     }
                 ),
             )
@@ -178,15 +205,16 @@ class DiscoveryTests(unittest.TestCase):
                     now=datetime(2026, 6, 20, tzinfo=timezone.utc),
                     fetcher=fetcher,
                 )
-                self.assertEqual(dry_run["city_candidate_count"], 3)
-                self.assertEqual(dry_run["recent_city_candidate_count"], 2)
+                self.assertEqual(dry_run["city_candidate_count"], 4)
+                self.assertEqual(dry_run["recent_city_candidate_count"], 3)
                 self.assertEqual(dry_run["condition_candidate_count"], 2)
-                self.assertEqual(dry_run["candidate_count"], 1)
-                self.assertEqual(dry_run["included_count"], 1)
+                self.assertEqual(dry_run["candidate_count"], 2)
+                self.assertEqual(dry_run["included_count"], 2)
                 self.assertEqual(dry_run["included_jobs"][0]["condition_matches"]["role_group_ids"], ["strategy_operations"])
                 self.assertFalse((Path(tmp) / "state.json").exists())
                 self.assertTrue(any(url.endswith("/jobs/100") for url in fetcher.urls))
                 self.assertTrue(any(url.endswith("/jobs/200") for url in fetcher.urls))
+                self.assertTrue(any(url.endswith("/jobs/500") for url in fetcher.urls))
                 self.assertFalse(any(url.endswith("/jobs/300") for url in fetcher.urls))
                 self.assertFalse(any(url.endswith("/jobs/400") for url in fetcher.urls))
 
@@ -205,12 +233,14 @@ class DiscoveryTests(unittest.TestCase):
                 statuses = {entry["job"]["external_id"]: entry["status"] for entry in state["evaluated_jobs"].values()}
                 self.assertEqual(statuses["100"], "included")
                 self.assertEqual(statuses["200"], "rejected")
+                self.assertEqual(statuses["500"], "included")
                 rejected = next(entry for entry in state["evaluated_jobs"].values() if entry["job"]["external_id"] == "200")
                 self.assertEqual(rejected["rejection_reason"], "conditions_filter:years_experience")
+                self.assertEqual(rejected["job"]["description_text"], "")
 
                 digest = run_digest(ROOT, from_state=True, state_store=store)
-                self.assertEqual(digest.candidate_count, 1)
-                self.assertEqual(len(digest.selected_jobs), 1)
+                self.assertEqual(digest.candidate_count, 2)
+                self.assertEqual(len(digest.selected_jobs), 2)
                 self.assertEqual(digest.selected_jobs[0].job.external_id, "100")
 
                 force_fetcher = FakeGreenhouseFetcher()
@@ -225,7 +255,7 @@ class DiscoveryTests(unittest.TestCase):
                     now=datetime(2026, 6, 20, tzinfo=timezone.utc),
                     fetcher=force_fetcher,
                 )
-                self.assertEqual(forced["city_candidate_count"], 3)
+                self.assertEqual(forced["city_candidate_count"], 4)
                 self.assertNotIn("If-None-Match", force_fetcher.headers[0])
 
 
@@ -259,6 +289,14 @@ class RegistryGreenhouseFetcher:
                                 "location": {"name": "New York City, NY"},
                                 "first_published": "2026-06-16T10:00:00-04:00",
                                 "updated_at": "2026-06-16T10:00:00-04:00",
+                            },
+                            {
+                                "id": 104,
+                                "title": "Associate",
+                                "absolute_url": "https://job-boards.greenhouse.io/coolco/jobs/104",
+                                "location": {"name": "New York City, NY"},
+                                "first_published": "2026-06-17T10:00:00-04:00",
+                                "updated_at": "2026-06-17T10:00:00-04:00",
                             },
                             {
                                 "id": 102,
@@ -311,6 +349,23 @@ class RegistryGreenhouseFetcher:
                         "first_published": "2026-06-16T10:00:00-04:00",
                         "updated_at": "2026-06-16T10:00:00-04:00",
                         "content": "Requires 8+ years of operations experience.",
+                    }
+                ),
+            )
+        if url.endswith("/boards/coolco/jobs/104"):
+            return FetchResponse(
+                status=200,
+                url=url,
+                headers={},
+                body=json.dumps(
+                    {
+                        "id": 104,
+                        "title": "Associate",
+                        "absolute_url": "https://job-boards.greenhouse.io/coolco/jobs/104",
+                        "location": {"name": "New York City, NY"},
+                        "first_published": "2026-06-17T10:00:00-04:00",
+                        "updated_at": "2026-06-17T10:00:00-04:00",
+                        "content": "Work on product strategy and special projects. 2 years of experience preferred.",
                     }
                 ),
             )
@@ -388,11 +443,11 @@ class RegistryDiscoveryTests(unittest.TestCase):
                 )
                 self.assertEqual(dry_run["registry_board_count"], 1)
                 self.assertEqual(dry_run["registry_boards_polled"], 1)
-                self.assertEqual(dry_run["city_candidate_count"], 3)
-                self.assertEqual(dry_run["recent_city_candidate_count"], 2)
+                self.assertEqual(dry_run["city_candidate_count"], 4)
+                self.assertEqual(dry_run["recent_city_candidate_count"], 3)
                 self.assertEqual(dry_run["condition_candidate_count"], 2)
-                self.assertEqual(dry_run["candidate_count"], 1)
-                self.assertEqual(dry_run["included_count"], 1)
+                self.assertEqual(dry_run["candidate_count"], 2)
+                self.assertEqual(dry_run["included_count"], 2)
                 self.assertEqual(dry_run["included_jobs"][0]["job"]["company"], "Coolco")
                 self.assertTrue(any(url.endswith("/boards/coolco/jobs/100") for url in fetcher.urls))
                 self.assertTrue(any(url.endswith("/boards/coolco/jobs/101") for url in fetcher.urls))

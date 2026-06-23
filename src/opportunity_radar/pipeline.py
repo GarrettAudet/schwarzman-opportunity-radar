@@ -357,11 +357,12 @@ def run_digest(
             criteria_text=criteria_text,
             model=config.rank_model,
             max_selected=config.max_jobs * max(1, config.max_jobs_per_company),
+            min_selected=min(config.min_jobs, config.max_jobs),
         )
     except Exception as exc:
         if allow_fallback:
             errors.append(f"ranker_fallback:{type(exc).__name__}")
-            selected = rank_deterministically(candidates, max_selected=config.max_jobs * max(1, config.max_jobs_per_company))
+            selected = rank_deterministically(candidates, max_selected=config.max_jobs * max(1, config.max_jobs_per_company), min_selected=min(config.min_jobs, config.max_jobs))
         else:
             errors.append(f"ranker_failed:{type(exc).__name__}")
             selected = []
