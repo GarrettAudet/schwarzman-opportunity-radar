@@ -27,9 +27,12 @@ class DigestTests(unittest.TestCase):
             [ranked(1, "Legal Engineer", "legal_regulatory"), ranked(2, "Strategy Associate", "strategy_operations")],
             week_key="2026-W25",
         )
-        self.assertIn("*Strategy / Operations*", text)
-        self.assertIn("*Legal / Regulatory*", text)
-        self.assertLess(text.index("*Strategy / Operations*"), text.index("*Legal / Regulatory*"))
+        self.assertIn("Hello everyone,", text)
+        self.assertIn("week of June 15-21, 2026", text)
+        self.assertIn("Strategy / Operations", text)
+        self.assertIn("Legal / Regulatory", text)
+        self.assertIn("Best,\nGarrett", text)
+        self.assertLess(text.index("Strategy / Operations"), text.index("Legal / Regulatory"))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+import re
+from collections import Counter
+from datetime import date, datetime, timedelta
 
 from .models import RankedOpportunity
 
@@ -15,10 +17,32 @@ GROUP_ORDER = [
 ]
 GROUP_LABELS = dict(GROUP_ORDER)
 OTHER_GROUP = "Other Strong Matches"
+THEME_KEYWORDS = [
+    ("AI and frontier-tech", ["ai", "artificial intelligence", "machine learning", "agent", "automation", "frontier"]),
+    ("fintech and financial infrastructure", ["fintech", "finance", "financial", "accounting", "payments", "banking"]),
+    ("product and go-to-market", ["product", "growth", "gtm", "go-to-market", "partnership", "enablement"]),
+    ("strategy and operations", ["strategy", "operations", "bizops", "business operations", "special projects"]),
+    ("healthcare and life sciences", ["health", "healthcare", "clinical", "cancer", "therapeutics", "pediatric"]),
+    ("climate and infrastructure", ["climate", "energy", "infrastructure", "construction", "robotics"]),
+]
 
 
 def week_label(week_key: str) -> str:
     return week_key.replace("-W", " week ")
+
+
+def week_date_range(week_key: str) -> str:
+    try:
+        year_text, week_text = week_key.split("-W", 1)
+        start = date.fromisocalendar(int(year_text), int(week_text), 1)
+    except (TypeError, ValueError):
+        return week_label(week_key)
+    end = start + timedelta(days=6)
+    if start.year == end.year and start.month == end.month:
+        return f"{start.strftime('%B')} {start.day}-{end.day}, {start.year}"
+    if start.year == end.year:
+        return f"{start.strftime('%B')} {start.day}-{end.strftime('%B')} {end.day}, {start.year}"
+    return f"{start.strftime('%B')} {start.day}, {start.year}-{end.strftime('%B')} {end.day}, {end.year}"
 
 
 def condition_group_ids(item: RankedOpportunity) -> list[str]:
@@ -51,33 +75,90 @@ def grouped_opportunities(selected: list[RankedOpportunity]) -> list[tuple[str, 
     return [(label, buckets[label]) for label in labels]
 
 
+def trend_sentence(selected: list[RankedOpportunity]) -> str:
+    city_counts = Counter(item.job.city for item in selected if item.job.city)
+    group_counts = Counter(digest_group_label(item) for item in selected)
+    theme_counts: Counter[str] = Counter()
+    for item in selected:
+        text = " ".join(
+            [
+                item.job.company,
+                item.job.title,
+                item.job.department,
+                item.job.description_text[:600],
+                item.why_cool,
+                item.scholar_fit_reason,
+            ]
+        ).lower()
+        for label, terms in THEME_KEYWORDS:
+            if any(re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) for term in terms):
+                theme_counts[label] += 1
+    city_part = ""
+    top_cities = [city for city, count in city_counts.most_common(3) if count >= 2]
+    if top_cities:
+        city_part = "roles clustered around " + human_join(top_cities)
+    top_themes = [theme for theme, count in theme_counts.most_common(3) if count >= 3]
+    if not top_themes:
+        top_themes = [group.lower() for group, count in group_counts.most_common(2) if count >= 2]
+    theme_part = ""
+    if top_themes:
+        theme_part = "a noticeable tilt toward " + human_join(top_themes)
+    if city_part and theme_part:
+        return f"This week's list has {city_part}, with {theme_part}."
+    if city_part:
+        return f"This week's list has {city_part}, with a broad mix of role types."
+    if theme_part:
+        return f"This week's list has {theme_part}."
+    return "This week's list is a mixed set of strategy, product, policy, investing, and frontier-tech roles."
+
+
+def human_join(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
 def format_digest(selected: list[RankedOpportunity], *, week_key: str, errors: list[str] | None = None) -> str:
+    week_range = week_date_range(week_key)
     if not selected:
-        return (
-            f"*OpportunityRadar - {week_label(week_key)}*\n\n"
-            "No new high-signal roles matched the criteria this week."
+        return "\n".join(
+            [
+                "Hello everyone,",
+                "",
+                f"No new high-signal roles matched the criteria for the week of {week_range}.",
+                "",
+                "Best,",
+                "Garrett",
+            ]
         )
     lines = [
-        f"*OpportunityRadar - {week_label(week_key)}*",
+        "Hello everyone,",
         "",
-        "Curated roles for Schwarzman Scholars:",
+        f"Here is this week's curated list of interesting roles for Schwarzman Scholars for the week of {week_range}.",
+        trend_sentence(selected),
         "",
     ]
     for group_label, items in grouped_opportunities(selected):
-        lines.append(f"*{group_label}*")
+        lines.append(group_label)
         for item in items:
             job = item.job
             url = job.apply_url or job.canonical_url
-            lines.append(f"{item.rank}. *{job.company} - {job.title}*")
-            lines.append(f"   {job.city} | Score {int(round(item.score))}")
             reason = item.why_cool or item.scholar_fit_reason
+            lines.append(f"{item.rank}. {job.company} - {job.title}")
+            lines.append(f"   Location: {job.city or job.location_text}")
             if reason:
-                lines.append(f"   {reason}")
+                lines.append(f"   Why it is interesting: {reason}")
             if url:
-                lines.append(f"   {url}")
+                lines.append(f"   Apply: {url}")
             lines.append("")
     if errors and any(error.startswith("source_failed") for error in errors):
-        lines.append("Some sources failed this run; the digest used the sources that were available.")
+        lines.append("Note: a few sources failed this run, so the digest uses the sources that were available.")
+        lines.append("")
+    lines.extend(["Best,", "Garrett"])
     return "\n".join(lines).strip()
 
 
