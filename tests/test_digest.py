@@ -24,7 +24,7 @@ def ranked(index: int, title: str, group_id: str) -> RankedOpportunity:
 class DigestTests(unittest.TestCase):
     def test_digest_groups_by_condition_tags(self) -> None:
         text = format_digest(
-            [ranked(1, "Legal Engineer", "legal_regulatory"), ranked(2, "Strategy Associate", "strategy_operations")],
+            [ranked(7, "Legal Engineer", "legal_regulatory"), ranked(42, "Strategy Associate", "strategy_operations")],
             week_key="2026-W25",
         )
         self.assertIn("Hello everyone,", text)
@@ -33,6 +33,9 @@ class DigestTests(unittest.TestCase):
         self.assertIn("Legal / Regulatory", text)
         self.assertIn("Best,\nGarrett", text)
         self.assertLess(text.index("Strategy / Operations"), text.index("Legal / Regulatory"))
+        self.assertIn("1. Example - Strategy Associate", text)
+        self.assertIn("2. Example - Legal Engineer", text)
+        self.assertNotIn("42. Example - Strategy Associate", text)
 
 
 if __name__ == "__main__":

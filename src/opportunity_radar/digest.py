@@ -142,19 +142,21 @@ def format_digest(selected: list[RankedOpportunity], *, week_key: str, errors: l
         trend_sentence(selected),
         "",
     ]
+    display_rank = 1
     for group_label, items in grouped_opportunities(selected):
         lines.append(group_label)
         for item in items:
             job = item.job
             url = job.apply_url or job.canonical_url
             reason = item.why_cool or item.scholar_fit_reason
-            lines.append(f"{item.rank}. {job.company} - {job.title}")
+            lines.append(f"{display_rank}. {job.company} - {job.title}")
             lines.append(f"   Location: {job.city or job.location_text}")
             if reason:
                 lines.append(f"   Why it is interesting: {reason}")
             if url:
                 lines.append(f"   Apply: {url}")
             lines.append("")
+            display_rank += 1
     if errors and any(error.startswith("source_failed") for error in errors):
         lines.append("Note: a few sources failed this run, so the digest uses the sources that were available.")
         lines.append("")
