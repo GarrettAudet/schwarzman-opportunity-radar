@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import unittest
 from pathlib import Path
 
@@ -25,7 +26,35 @@ from opportunity_radar.registry import (
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def load_refresh_registry_script():
+    spec = importlib.util.spec_from_file_location(
+        "opportunity_refresh_registry_script",
+        ROOT / "scripts" / "refresh_registry.py",
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load refresh_registry.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class RegistryTests(unittest.TestCase):
+    def test_refresh_cli_treats_partial_crawl_errors_as_warnings(self) -> None:
+        should_fail_refresh = load_refresh_registry_script().should_fail_refresh
+        partial_success = {
+            "errors": ["common_crawl_query_failed:jobs.lever.co/*:RuntimeError:HTTP 502"],
+            "accepted_ref_count": 5,
+            "registry_summary": {"boards_added": 1, "boards_updated": 0},
+        }
+        total_failure = {
+            "errors": ["common_crawl_query_failed:job-boards.greenhouse.io:RuntimeError:HTTP 504"],
+            "accepted_ref_count": 0,
+            "registry_summary": {"boards_added": 0, "boards_updated": 0},
+        }
+
+        self.assertFalse(should_fail_refresh(partial_success))
+        self.assertTrue(should_fail_refresh(total_failure))
+
     def test_parses_greenhouse_job_urls(self) -> None:
         modern = parse_greenhouse_job_url("https://job-boards.greenhouse.io/openai/jobs/123456")
         self.assertIsNotNone(modern)

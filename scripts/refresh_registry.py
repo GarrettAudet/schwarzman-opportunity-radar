@@ -11,6 +11,16 @@ sys.path.insert(0, str(ROOT / "src"))
 from opportunity_radar.registry import refresh_registry  # noqa: E402
 
 
+def should_fail_refresh(result: dict) -> bool:
+    if not result.get("errors"):
+        return False
+    summary = result.get("registry_summary", {})
+    accepted_refs = int(result.get("accepted_ref_count", 0) or 0)
+    boards_added = int(summary.get("boards_added", 0) or 0)
+    boards_updated = int(summary.get("boards_updated", 0) or 0)
+    return accepted_refs <= 0 and boards_added <= 0 and boards_updated <= 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Refresh the OpportunityRadar public ATS board registry.")
     parser.add_argument("--root", default=".", help="Repository root")
@@ -42,7 +52,7 @@ def main() -> int:
         print(f"Errors: {', '.join(result['errors']) if result['errors'] else 'none'}")
         for ref in result.get("discovered_refs", [])[:10]:
             print(f"- {ref['ats']}:{ref['board_token']} job={ref['job_id']} {ref['url']}")
-    return 0 if not result.get("errors") else 1
+    return 1 if should_fail_refresh(result) else 0
 
 
 if __name__ == "__main__":
