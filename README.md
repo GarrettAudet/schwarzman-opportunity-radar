@@ -1,8 +1,8 @@
 # OpportunityRadar
 
-OpportunityRadar finds high-signal early-career opportunities for Schwarzman Scholars, ranks them against a human-editable criteria file, and sends a weekly digest by email or WhatsApp.
+OpportunityRadar finds high-signal early-career opportunities for Schwarzman Scholars, ranks them against a human-editable criteria file, and sends a weekly email digest to a Google Group through Gmail SMTP.
 
-The production path is intentionally simple: GitHub Actions runs discovery and digest jobs, a private state repo stores durable JSON state, and the public repo keeps the application code, workflow, tests, and docs.
+The production model is intentionally narrow: GitHub Actions runs discovery and digest jobs, a private state repo stores durable JSON state, Gmail sends one message, and Google Groups manages the audience.
 
 ## What It Does
 
@@ -10,31 +10,31 @@ The production path is intentionally simple: GitHub Actions runs discovery and d
 - Polls active ATS boards daily, normalizes target-city postings, and filters out noisy roles before ranking.
 - Uses `docs/opportunity-criteria.md` plus an LLM ranker to decide which roles belong in the digest.
 - Stores evaluated jobs in durable JSON state so the weekly digest can send only unsent included opportunities.
-- Sends through Twilio WhatsApp, Gmail SMTP, Gmail API, or Microsoft Graph email.
-- Supports Google Groups and Google Sheets-backed recipient lists.
+- Sends one weekly plain-text email through Gmail SMTP to a configured Google Group.
+- Leaves subscriber management, additions, removals, and delivery permissions to Google Groups.
 - Provides local scripts, fixture-backed smoke runs, and protected API endpoints for manual checks.
 
 ## How It Runs
 
 The app has three scheduled jobs in `.github/workflows/opportunity-radar-schedule.yml`:
 
-| Job | Purpose | Sends messages |
+| Job | Purpose | Sends email |
 | --- | --- | --- |
 | Registry refresh | Finds and stores public ATS board tokens. | No |
 | Daily discovery | Polls boards, filters/ranks jobs, and writes evaluated state. | No |
-| Weekly digest | Reads unsent included jobs from state and delivers the digest. | Yes, when configured |
+| Weekly digest | Reads unsent included jobs from state and emails the Google Group. | Yes, when configured |
 
 Manual workflow tasks behave differently:
 
 | Task | What it does |
 | --- | --- |
-| `all-preview` | Runs registry, discovery, and a digest preview. It never sends messages. |
+| `all-preview` | Runs registry, discovery, and a digest preview. It never sends email. |
 | `registry` | Runs only the registry refresh. |
 | `discovery` | Runs only daily discovery. |
 | `weekly-preview` | Builds the weekly digest from state without sending. |
-| `weekly-send` | Checks send readiness, then sends the digest from state. |
+| `weekly-send` | Checks Gmail SMTP readiness, then sends the digest from state. |
 
-A scheduled weekly run sends only when `OPPORTUNITY_SCHEDULER_ENABLED=true` and the runtime schedule guard matches `OPPORTUNITY_TIMEZONE`, `OPPORTUNITY_SEND_DOW`, and `OPPORTUNITY_SEND_HOUR`.
+A scheduled weekly run sends only when `OPPORTUNITY_SCHEDULER_ENABLED=true` and the runtime schedule guard matches `OPPORTUNITY_TIMEZONE`, `OPPORTUNITY_SEND_DOW`, and `OPPORTUNITY_SEND_HOUR`. Manual `weekly-send` is for test sends and operational retries.
 
 ## Architecture
 
@@ -50,25 +50,32 @@ flowchart LR
     H <--> C
     I[Weekly GitHub Actions Scheduler] --> J[Digest From Unsent Winners]
     J <--> C
-    J --> K[Delivery Sender]
+    J --> K[Gmail SMTP Sender]
     L[Protected API] --> J
     M[Criteria Markdown] --> G
 ```
 
-## Production Setup
+## Gmail And Google Groups Setup
+
+Production delivery assumes:
+
+- A Google Group exists for recipients, for example `schwarzman-job-updates@googlegroups.com`.
+- The Gmail account used as sender has SMTP access and an app password.
+- The Google Group allows the sender address to post to the group.
+- GitHub Actions has the repo secrets and variables below.
 
 Use GitHub repository secrets for sensitive values:
 
 ```text
 OPPORTUNITY_STATE_REPO=<owner/private-state-repo>
 OPPORTUNITY_STATE_TOKEN=<fine-grained contents read/write token>
-OPPORTUNITY_RECIPIENTS=<destination email, group, or WhatsApp numbers>
+OPPORTUNITY_RECIPIENTS=schwarzman-job-updates@googlegroups.com
 OPENROUTER_API_KEY=<capped OpenRouter key>
-SMTP_USERNAME=<Gmail SMTP account>
+SMTP_USERNAME=schwarzmanjobupdates@gmail.com
 SMTP_APP_PASSWORD=<Gmail app password>
 ```
 
-Use GitHub repository variables for non-secret settings. This example sends to a Google Group by Gmail SMTP every Wednesday at 09:00 Beijing time:
+Use GitHub repository variables for non-secret settings:
 
 ```text
 OPPORTUNITY_SCHEDULER_ENABLED=true
@@ -86,88 +93,24 @@ SMTP_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
 SMTP_USE_STARTTLS=true
 ```
 
-Keep the GitHub Actions cron aligned with the runtime guard. For Wednesday 09:00 Beijing time, the weekly cron should be:
+For Wednesday 09:00 Beijing time, keep the GitHub Actions weekly cron aligned with the runtime guard:
 
 ```yaml
 - cron: "0 1 * * WED" # 09:00 Asia/Shanghai
 ```
 
-and the weekly digest step checks should compare `github.event.schedule` to the same cron string.
+The `Check send readiness` and `Run weekly digest` schedule checks in the workflow should compare `github.event.schedule` to that same cron string.
 
-## Delivery Providers
+## Manual Sends
 
-### Gmail SMTP to a Google Group
+Use manual sends for smoke tests and one-off retries:
 
-This is the simplest email path when the audience is managed by Google Groups:
+1. Open **Actions** -> **OpportunityRadar schedule** -> **Run workflow**.
+2. Choose `weekly-send`, not `all-preview`.
+3. Confirm the run includes the `Check send readiness` step.
+4. Confirm Gmail accepted the SMTP send and the Google Group delivered it to members.
 
-```text
-OPPORTUNITY_SEND_PROVIDER=gmail_smtp
-OPPORTUNITY_RECIPIENTS=schwarzman-job-updates@googlegroups.com
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=schwarzmanjobupdates@gmail.com
-SMTP_APP_PASSWORD=<Google app password>
-SMTP_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
-SMTP_USE_STARTTLS=true
-```
-
-OpportunityRadar sends one email to the group address; Google Groups handles membership.
-
-### Gmail API with a Google Sheet
-
-Use this when a Google Sheet is the recipient source of truth:
-
-```text
-OPPORTUNITY_SEND_PROVIDER=gmail_email
-GOOGLE_GMAIL_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
-GOOGLE_CLIENT_ID=<Google OAuth client id>
-GOOGLE_CLIENT_SECRET=<Google OAuth client secret>
-GOOGLE_REFRESH_TOKEN=<one-time refresh token>
-GOOGLE_RECIPIENTS_SHEET_ID=<spreadsheet id>
-GOOGLE_RECIPIENTS_RANGE=Recipients!A:C
-```
-
-Run the one-time OAuth flow locally:
-
-```powershell
-python scripts\google_auth.py --client-id <client-id> --client-secret <client-secret>
-```
-
-The sheet should include `email`, `name`, and optional `status` columns. Rows marked `unsubscribed`, `inactive`, `removed`, or `deleted` are skipped.
-
-### Microsoft Graph Email
-
-```text
-OPPORTUNITY_SEND_PROVIDER=microsoft_graph_email
-OPPORTUNITY_RECIPIENTS=jobs-list@example.com
-MICROSOFT_CLIENT_ID=<app registration client id>
-MICROSOFT_REFRESH_TOKEN=<one-time delegated refresh token>
-MICROSOFT_TENANT_ID=common
-MICROSOFT_GRAPH_BASE_URL=https://graph.microsoft.com/v1.0
-MICROSOFT_LOGIN_BASE_URL=https://login.microsoftonline.com
-MICROSOFT_USER_ID=<optional user id or email for /users/{id}/sendMail>
-MICROSOFT_SAVE_TO_SENT_ITEMS=true
-```
-
-Run the one-time OAuth flow locally:
-
-```powershell
-python scripts\microsoft_auth.py --client-id <client-id> --tenant common
-```
-
-### Twilio WhatsApp
-
-```text
-OPPORTUNITY_SEND_PROVIDER=twilio_whatsapp
-OPPORTUNITY_RECIPIENTS=whatsapp:+15551234567,whatsapp:+15557654321
-TWILIO_ACCOUNT_SID=<sid>
-TWILIO_AUTH_TOKEN=<token>
-TWILIO_WHATSAPP_FROM=whatsapp:+15551234567
-TWILIO_WHATSAPP_CONTENT_SID=<optional approved template sid>
-TWILIO_MESSAGING_SERVICE_SID=<optional messaging service sid>
-```
-
-For proactive WhatsApp sends, prefer an approved `TWILIO_WHATSAPP_CONTENT_SID` template.
+`all-preview` and `weekly-preview` are deliberately safe: they build previews but never email the group.
 
 ## State And Config Files
 
@@ -210,7 +153,7 @@ python scripts\run_discovery.py --root . --sources data\config\sources.greenhous
 python scripts\run_weekly_digest.py --root . --from-state
 ```
 
-Send from evaluated state to configured recipients:
+Check Gmail SMTP readiness and send from evaluated state:
 
 ```powershell
 python scripts\check_send_ready.py --root .
@@ -229,6 +172,10 @@ Preview through HTTP:
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/digest/preview -Headers @{ Authorization = "Bearer $env:OPPORTUNITY_API_TOKEN" } -Body '{"from_state":true}' -ContentType 'application/json'
 ```
 
+## Other Delivery Paths
+
+The codebase still contains sender implementations for Gmail API, Microsoft Graph email, and Twilio WhatsApp. They are useful if the delivery model changes later, but this repository is currently documented around Gmail SMTP plus Google Groups because that is the intended production setup.
+
 ## Verification
 
 Run the production gate before changing scheduling, delivery, or ranking behavior:
@@ -243,6 +190,6 @@ The gate compiles Python, runs unit/integration tests, performs fixture-backed r
 
 `render.yaml` defines only the optional free Render web service. It does not create Render cron services because those can require paid cron billing.
 
-Scheduled work is owned by GitHub Actions. Before enabling live sends, run `weekly-send` manually with a test recipient and confirm the delivery provider is ready.
+Scheduled work is owned by GitHub Actions. Before enabling live sends, run `weekly-send` manually with a test recipient and confirm the Gmail-to-Google-Groups path is ready.
 
 See `docs/cost-controls.md` for budget controls and `docs/private-state-repo-readme.md` for the private state repo layout.
