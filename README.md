@@ -1,21 +1,40 @@
 # OpportunityRadar
 
-OpportunityRadar sends a weekly digest of high-signal jobs for Schwarzman Scholars through Twilio WhatsApp, Gmail SMTP/API, or Microsoft Graph email. It focuses on roles in Beijing, Dubai, Shenzhen, New York, San Francisco, and Sydney, then uses a human-editable criteria file plus an LLM ranker to decide which roles are actually worth sending.
+OpportunityRadar finds high-signal early-career opportunities for Schwarzman Scholars, ranks them against a human-editable criteria file, and sends a weekly digest by email or WhatsApp.
 
-The project is intentionally built around adapters and durable state so one broken career page does not break the whole weekly digest.
+The production path is intentionally simple: GitHub Actions runs discovery and digest jobs, a private state repo stores durable JSON state, and the public repo keeps the application code, workflow, tests, and docs.
 
 ## What It Does
 
-- Discovers public Greenhouse boards from the free Common Crawl URL index, stores board tokens in durable state, then polls structured ATS APIs.
-- For Greenhouse, polls discovered board indexes, keeps recent target-city postings, condition-filters lightweight rows, then detail-fetches only promising roles.
-- Normalizes target-city aliases including NYC, New York City, SF, Shenzhen, Shenzen, and Sydney.
-- Applies deterministic condition filters before the LLM, including posting recency, target locations, role groups, exclude terms, and the 0-5 years-of-experience requirement.
-- Stores daily evaluated opportunities in durable JSON state, then sends the weekly digest from unsent included jobs.
-- Uses `docs/opportunity-criteria.md` to guide LLM judgment for what counts as a cool Scholar-relevant role.
-- Sends a WhatsApp-safe weekly digest through Twilio, or a plain-text email digest through Gmail SMTP/API or Microsoft Graph.
-- Supports approved Twilio WhatsApp templates, Gmail SMTP app passwords, Gmail `gmail.send`, Microsoft delegated `Mail.Send`, Google Groups, and Google Sheets-backed recipient lists.
-- Exposes protected preview and run endpoints for manual checks.
-- Stores durable state in local JSON for development or a private GitHub repo in production.
+- Discovers public Greenhouse boards from Common Crawl and stores reusable board tokens in state.
+- Polls active ATS boards daily, normalizes target-city postings, and filters out noisy roles before ranking.
+- Uses `docs/opportunity-criteria.md` plus an LLM ranker to decide which roles belong in the digest.
+- Stores evaluated jobs in durable JSON state so the weekly digest can send only unsent included opportunities.
+- Sends through Twilio WhatsApp, Gmail SMTP, Gmail API, or Microsoft Graph email.
+- Supports Google Groups and Google Sheets-backed recipient lists.
+- Provides local scripts, fixture-backed smoke runs, and protected API endpoints for manual checks.
+
+## How It Runs
+
+The app has three scheduled jobs in `.github/workflows/opportunity-radar-schedule.yml`:
+
+| Job | Purpose | Sends messages |
+| --- | --- | --- |
+| Registry refresh | Finds and stores public ATS board tokens. | No |
+| Daily discovery | Polls boards, filters/ranks jobs, and writes evaluated state. | No |
+| Weekly digest | Reads unsent included jobs from state and delivers the digest. | Yes, when configured |
+
+Manual workflow tasks behave differently:
+
+| Task | What it does |
+| --- | --- |
+| `all-preview` | Runs registry, discovery, and a digest preview. It never sends messages. |
+| `registry` | Runs only the registry refresh. |
+| `discovery` | Runs only daily discovery. |
+| `weekly-preview` | Builds the weekly digest from state without sending. |
+| `weekly-send` | Checks send readiness, then sends the digest from state. |
+
+A scheduled weekly run sends only when `OPPORTUNITY_SCHEDULER_ENABLED=true` and the runtime schedule guard matches `OPPORTUNITY_TIMEZONE`, `OPPORTUNITY_SEND_DOW`, and `OPPORTUNITY_SEND_HOUR`.
 
 ## Architecture
 
@@ -36,6 +55,134 @@ flowchart LR
     M[Criteria Markdown] --> G
 ```
 
+## Production Setup
+
+Use GitHub repository secrets for sensitive values:
+
+```text
+OPPORTUNITY_STATE_REPO=<owner/private-state-repo>
+OPPORTUNITY_STATE_TOKEN=<fine-grained contents read/write token>
+OPPORTUNITY_RECIPIENTS=<destination email, group, or WhatsApp numbers>
+OPENROUTER_API_KEY=<capped OpenRouter key>
+SMTP_USERNAME=<Gmail SMTP account>
+SMTP_APP_PASSWORD=<Gmail app password>
+```
+
+Use GitHub repository variables for non-secret settings. This example sends to a Google Group by Gmail SMTP every Wednesday at 09:00 Beijing time:
+
+```text
+OPPORTUNITY_SCHEDULER_ENABLED=true
+OPPORTUNITY_TIMEZONE=Asia/Shanghai
+OPPORTUNITY_SEND_DOW=WED
+OPPORTUNITY_SEND_HOUR=9
+OPPORTUNITY_SEND_PROVIDER=gmail_smtp
+OPPORTUNITY_EMAIL_SUBJECT=Weekly Job Newsletter
+OPPORTUNITY_MAX_JOBS=30
+OPPORTUNITY_MIN_JOBS=15
+OPPORTUNITY_MAX_JOBS_PER_COMPANY=2
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
+SMTP_USE_STARTTLS=true
+```
+
+Keep the GitHub Actions cron aligned with the runtime guard. For Wednesday 09:00 Beijing time, the weekly cron should be:
+
+```yaml
+- cron: "0 1 * * WED" # 09:00 Asia/Shanghai
+```
+
+and the weekly digest step checks should compare `github.event.schedule` to the same cron string.
+
+## Delivery Providers
+
+### Gmail SMTP to a Google Group
+
+This is the simplest email path when the audience is managed by Google Groups:
+
+```text
+OPPORTUNITY_SEND_PROVIDER=gmail_smtp
+OPPORTUNITY_RECIPIENTS=schwarzman-job-updates@googlegroups.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=schwarzmanjobupdates@gmail.com
+SMTP_APP_PASSWORD=<Google app password>
+SMTP_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
+SMTP_USE_STARTTLS=true
+```
+
+OpportunityRadar sends one email to the group address; Google Groups handles membership.
+
+### Gmail API with a Google Sheet
+
+Use this when a Google Sheet is the recipient source of truth:
+
+```text
+OPPORTUNITY_SEND_PROVIDER=gmail_email
+GOOGLE_GMAIL_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
+GOOGLE_CLIENT_ID=<Google OAuth client id>
+GOOGLE_CLIENT_SECRET=<Google OAuth client secret>
+GOOGLE_REFRESH_TOKEN=<one-time refresh token>
+GOOGLE_RECIPIENTS_SHEET_ID=<spreadsheet id>
+GOOGLE_RECIPIENTS_RANGE=Recipients!A:C
+```
+
+Run the one-time OAuth flow locally:
+
+```powershell
+python scripts\google_auth.py --client-id <client-id> --client-secret <client-secret>
+```
+
+The sheet should include `email`, `name`, and optional `status` columns. Rows marked `unsubscribed`, `inactive`, `removed`, or `deleted` are skipped.
+
+### Microsoft Graph Email
+
+```text
+OPPORTUNITY_SEND_PROVIDER=microsoft_graph_email
+OPPORTUNITY_RECIPIENTS=jobs-list@example.com
+MICROSOFT_CLIENT_ID=<app registration client id>
+MICROSOFT_REFRESH_TOKEN=<one-time delegated refresh token>
+MICROSOFT_TENANT_ID=common
+MICROSOFT_GRAPH_BASE_URL=https://graph.microsoft.com/v1.0
+MICROSOFT_LOGIN_BASE_URL=https://login.microsoftonline.com
+MICROSOFT_USER_ID=<optional user id or email for /users/{id}/sendMail>
+MICROSOFT_SAVE_TO_SENT_ITEMS=true
+```
+
+Run the one-time OAuth flow locally:
+
+```powershell
+python scripts\microsoft_auth.py --client-id <client-id> --tenant common
+```
+
+### Twilio WhatsApp
+
+```text
+OPPORTUNITY_SEND_PROVIDER=twilio_whatsapp
+OPPORTUNITY_RECIPIENTS=whatsapp:+15551234567,whatsapp:+15557654321
+TWILIO_ACCOUNT_SID=<sid>
+TWILIO_AUTH_TOKEN=<token>
+TWILIO_WHATSAPP_FROM=whatsapp:+15551234567
+TWILIO_WHATSAPP_CONTENT_SID=<optional approved template sid>
+TWILIO_MESSAGING_SERVICE_SID=<optional messaging service sid>
+```
+
+For proactive WhatsApp sends, prefer an approved `TWILIO_WHATSAPP_CONTENT_SID` template.
+
+## State And Config Files
+
+Local development reads from files under `data/` by default. Production can read runtime files from a private GitHub state repo.
+
+| File | Purpose |
+| --- | --- |
+| `data/config/discovery.example.json` | Common Crawl registry and board-polling limits. |
+| `data/config/conditions.example.json` | Posting recency, target locations, role groups, exclude terms, and years-of-experience filters. |
+| `data/config/sources.example.json` | Optional explicitly configured sources. |
+| `docs/opportunity-criteria.md` | Ranking criteria used by the LLM. |
+| `data/state/opportunity-state.json` | Local durable state for development runs. |
+
+Production state repo variables can point to private equivalents with `GITHUB_DISCOVERY_PATH`, `GITHUB_CONDITIONS_PATH`, `GITHUB_SOURCES_PATH`, and `GITHUB_STATE_PATH`.
+
 ## Local Development
 
 Install dependencies:
@@ -44,53 +191,30 @@ Install dependencies:
 python -m pip install -r requirements-backend.txt
 ```
 
-Run a fixture-backed weekly dry run without spending model tokens:
-
-```powershell
-python scripts\run_weekly_digest.py --root . --sources tests\fixtures\sources.fixture.json --deterministic-fallback --include-seen
-```
-
-Refresh the public ATS board registry from a fixture-backed Common Crawl response:
-
-```powershell
-python scripts\refresh_registry.py --root . --discovery-config tests\fixtures\discovery.fixture.json --json
-```
-
-Run daily discovery against fixtures using fixture conditions:
+Run fixture-backed discovery without writing state:
 
 ```powershell
 python scripts\run_discovery.py --root . --sources tests\fixtures\sources.fixture.json --conditions tests\fixtures\conditions.fixture.json --deterministic-fallback --json
 ```
 
-Try the Greenhouse discovery flow against Anthropic without writing state:
+Preview a fixture-backed weekly digest without spending model tokens:
 
 ```powershell
-python scripts\run_discovery.py --root . --sources data\config\sources.greenhouse-smoke.json --conditions data\config\conditions.example.json --deterministic-fallback --json
+python scripts\run_weekly_digest.py --root . --sources tests\fixtures\sources.fixture.json --deterministic-fallback --include-seen
 ```
 
-Write evaluated jobs to local state, then preview the weekly digest from that state:
+Write evaluated jobs to local state, then preview the digest from state:
 
 ```powershell
 python scripts\run_discovery.py --root . --sources data\config\sources.greenhouse-smoke.json --conditions data\config\conditions.example.json --deterministic-fallback --write
 python scripts\run_weekly_digest.py --root . --from-state
 ```
 
-Run with real configured sources and OpenRouter ranking using the legacy live weekly path:
-
-```powershell
-python scripts\run_weekly_digest.py --root . --dry-run
-```
-
-Send to configured recipients from evaluated state:
-
-```powershell
-python scripts\run_weekly_digest.py --root . --send --from-state
-```
-
-Check whether the current environment is configured for the selected delivery provider without sending anything:
+Send from evaluated state to configured recipients:
 
 ```powershell
 python scripts\check_send_ready.py --root .
+python scripts\run_weekly_digest.py --root . --send --from-state
 ```
 
 Run the protected API locally:
@@ -105,114 +229,20 @@ Preview through HTTP:
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/digest/preview -Headers @{ Authorization = "Bearer $env:OPPORTUNITY_API_TOKEN" } -Body '{"from_state":true}' -ContentType 'application/json'
 ```
 
-## Configuration
+## Verification
 
-Copy `data/config/discovery.example.json` to `data/config/discovery.local.json` to tune Common Crawl registry refresh and board-polling limits. Copy `data/config/conditions.example.json` to `data/config/conditions.local.json` to tune posting recency, target locations, role groups, exclude terms, and years-of-experience rules. `sources.local.json` remains optional for deliberately configured company boards or fixture-style sources. Production can read `discovery.json`, `conditions.json`, and optional `sources.json` from a private GitHub repo using `GITHUB_DISCOVERY_PATH`, `GITHUB_CONDITIONS_PATH`, and `GITHUB_SOURCES_PATH`.
-
-Important env vars:
-
-```text
-OPPORTUNITY_API_TOKEN=<optional bearer token for API endpoints>
-OPPORTUNITY_SEND_PROVIDER=twilio_whatsapp
-OPPORTUNITY_RECIPIENTS=whatsapp:+15551234567,whatsapp:+15557654321
-OPPORTUNITY_EMAIL_SUBJECT=OpportunityRadar weekly jobs
-OPPORTUNITY_SEND_EMPTY_DIGEST=false
-OPPORTUNITY_MAX_JOBS=30
-OPPORTUNITY_MIN_JOBS=15
-OPPORTUNITY_TIMEZONE=America/Edmonton
-OPPORTUNITY_SEND_DOW=MON
-OPPORTUNITY_SEND_HOUR=9
-OPPORTUNITY_MAX_JOBS=30
-OPPORTUNITY_MAX_JOBS_PER_COMPANY=2
-OPPORTUNITY_CITIES=Beijing,Dubai,Shenzhen,New York,San Francisco,Sydney
-OPENROUTER_API_KEY=<key>
-OPENROUTER_RANK_MODEL=openai/gpt-4.1-mini
-TWILIO_ACCOUNT_SID=<sid>
-TWILIO_AUTH_TOKEN=<token>
-TWILIO_WHATSAPP_FROM=whatsapp:+15551234567
-TWILIO_WHATSAPP_CONTENT_SID=<optional approved template sid>
-TWILIO_MESSAGING_SERVICE_SID=<optional messaging service sid>
-GITHUB_STATE_REPO=<owner/private-state-repo>
-GITHUB_STATE_TOKEN=<fine-grained contents read/write token>
-GITHUB_STATE_PATH=opportunity-state.json
-GITHUB_DISCOVERY_PATH=discovery.json
-GITHUB_SOURCES_PATH=<optional sources.json>
-GITHUB_CONDITIONS_PATH=conditions.json
-```
-
-For Gmail SMTP delivery through a Google Group, set:
-
-```text
-OPPORTUNITY_SEND_PROVIDER=gmail_smtp
-OPPORTUNITY_RECIPIENTS=schwarzman-job-updates@googlegroups.com
-OPPORTUNITY_EMAIL_SUBJECT=OpportunityRadar weekly jobs
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=schwarzmanjobupdates@gmail.com
-SMTP_APP_PASSWORD=<Google app password>
-SMTP_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
-SMTP_USE_STARTTLS=true
-```
-
-This path avoids Google Cloud entirely. Manage membership in Google Groups; OpportunityRadar sends one email to the group address.
-
-For Gmail API delivery with a Google Sheet mailing list, set:
-
-```text
-OPPORTUNITY_SEND_PROVIDER=gmail_email
-OPPORTUNITY_EMAIL_SUBJECT=OpportunityRadar weekly jobs
-GOOGLE_GMAIL_FROM=Schwarzman Job Updates <schwarzmanjobupdates@gmail.com>
-GOOGLE_CLIENT_ID=<Google OAuth client id>
-GOOGLE_CLIENT_SECRET=<Google OAuth client secret>
-GOOGLE_REFRESH_TOKEN=<one-time refresh token>
-GOOGLE_RECIPIENTS_SHEET_ID=<spreadsheet id>
-GOOGLE_RECIPIENTS_RANGE=Recipients!A:C
-```
-
-Run `python scripts\google_auth.py --client-id <client-id> --client-secret <client-secret>` to complete the one-time Google login and 2FA flow as `schwarzmanjobupdates@gmail.com`. The Google Sheet is the source of truth for delivery: use columns `email`, `name`, and optional `status`; deleted rows and rows marked `unsubscribed`, `inactive`, `removed`, or `deleted` are not sent.
-
-For Microsoft Graph email delivery, set:
-
-```text
-OPPORTUNITY_SEND_PROVIDER=microsoft_graph_email
-OPPORTUNITY_RECIPIENTS=jobs-list@example.com
-OPPORTUNITY_EMAIL_SUBJECT=OpportunityRadar weekly jobs
-MICROSOFT_CLIENT_ID=<app registration client id>
-MICROSOFT_REFRESH_TOKEN=<one-time delegated refresh token>
-MICROSOFT_TENANT_ID=common
-MICROSOFT_GRAPH_BASE_URL=https://graph.microsoft.com/v1.0
-MICROSOFT_LOGIN_BASE_URL=https://login.microsoftonline.com
-MICROSOFT_USER_ID=<optional user id or email for /users/{id}/sendMail>
-MICROSOFT_SAVE_TO_SENT_ITEMS=true
-```
-
-Run `python scripts\microsoft_auth.py --client-id <client-id> --tenant common` to complete the one-time Microsoft login and 2FA flow. If the Tsinghua tenant blocks user consent, the script will fail during login and the sender account will need tenant approval or a different email account.
-
-For proactive WhatsApp sends, prefer `TWILIO_WHATSAPP_CONTENT_SID` with an approved template. If `TWILIO_MESSAGING_SERVICE_SID` is set with the template SID, `TWILIO_WHATSAPP_FROM` is not required; otherwise set `TWILIO_WHATSAPP_FROM` to your approved WhatsApp sender.
-
-## Production Gate
+Run the production gate before changing scheduling, delivery, or ranking behavior:
 
 ```powershell
 python scripts\run_production_gate.py --root .
 ```
 
-The gate compiles Python, runs the unit/integration tests, performs fixture-backed registry refresh, dynamic discovery, and detection-to-Twilio smokes, then performs configured-source discovery and digest smokes.
+The gate compiles Python, runs unit/integration tests, performs fixture-backed registry refresh, exercises dynamic discovery, and runs digest smoke checks.
 
-## Deployment
+## Deployment Notes
 
-`render.yaml` intentionally defines only the free Render web service:
+`render.yaml` defines only the optional free Render web service. It does not create Render cron services because those can require paid cron billing.
 
-- `opportunity-radar-api` exposes `/health`, `/digest/preview`, and `/digest/run`.
-- The default Blueprint does not create Render cron services, because Render cron jobs have a monthly minimum charge.
+Scheduled work is owned by GitHub Actions. Before enabling live sends, run `weekly-send` manually with a test recipient and confirm the delivery provider is ready.
 
-Scheduled work runs from `.github/workflows/opportunity-radar-schedule.yml`:
-
-- weekly registry refresh discovers Greenhouse board tokens from Common Crawl.
-- daily discovery polls active registry boards plus any optional configured sources, then writes evaluated jobs to durable state.
-- weekly digest runs hourly on Mondays in UTC with `--respect-schedule --from-state`; the app only sends during the configured local send hour, avoiding daylight-saving drift.
-
-Scheduled GitHub Actions runs are disabled until repository variable `OPPORTUNITY_SCHEDULER_ENABLED=true` is set. Manual workflow dispatch can run `all-preview`, `registry`, `discovery`, `weekly-preview`, or `weekly-send`.
-
-See `docs/cost-controls.md` for the free/spend-capped deployment policy.
-
-See `docs/private-state-repo-readme.md` for the private state/config repo layout.
+See `docs/cost-controls.md` for budget controls and `docs/private-state-repo-readme.md` for the private state repo layout.
