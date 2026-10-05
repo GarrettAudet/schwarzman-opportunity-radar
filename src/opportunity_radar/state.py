@@ -132,7 +132,9 @@ class GithubJsonStore:
             write_payload["updated_at"] = now_iso()
             body: dict[str, Any] = {
                 "message": "Update OpportunityRadar state",
-                "content": base64.b64encode(json.dumps(write_payload, ensure_ascii=False, indent=2).encode("utf-8")).decode("ascii"),
+                # State can contain thousands of jobs and board results. Avoid
+                # paying the upload-size cost of whitespace on every update.
+                "content": base64.b64encode(json.dumps(write_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii"),
                 "branch": self.ref,
             }
             if sha:
@@ -147,6 +149,30 @@ class GithubJsonStore:
             except urllib.error.HTTPError as exc:
                 if exc.code == 409 and attempt < 2:
                     continue
+                # urllib's default exception hides GitHub's validation reason.
+                # Report only error metadata, never the request or state data.
+                try:
+                    error = json.loads(exc.read())
+                except (ValueError, OSError):
+                    error = {}
+                if isinstance(error, dict):
+                    detail = {
+                        "message": error.get("message", ""),
+                        "errors": error.get("errors", []),
+                    }
+                    # GitHub can echo invalid values; do not log those.
+                    if isinstance(detail["errors"], list):
+                        detail["errors"] = [
+                            {key: item[key] for key in ("resource", "field", "code", "message") if key in item}
+                            for item in detail["errors"] if isinstance(item, dict)
+                        ]
+                    else:
+                        detail["errors"] = []
+                    summary = json.dumps(detail, ensure_ascii=True)
+                    for sensitive in (self.token, self.repo, self.path):
+                        if sensitive:
+                            summary = summary.replace(sensitive, "[redacted]")
+                    exc.msg = f"{exc.reason}; GitHub validation: {summary[:1500]}"
                 raise
 
 
