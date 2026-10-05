@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -132,7 +133,9 @@ class GithubJsonStore:
             write_payload["updated_at"] = now_iso()
             body: dict[str, Any] = {
                 "message": "Update OpportunityRadar state",
-                "content": base64.b64encode(json.dumps(write_payload, ensure_ascii=False, indent=2).encode("utf-8")).decode("ascii"),
+                # State can contain thousands of jobs and board results. Avoid
+                # paying the upload-size cost of whitespace on every update.
+                "content": base64.b64encode(json.dumps(write_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).decode("ascii"),
                 "branch": self.ref,
             }
             if sha:
@@ -147,6 +150,36 @@ class GithubJsonStore:
             except urllib.error.HTTPError as exc:
                 if exc.code == 409 and attempt < 2:
                     continue
+                if exc.code in (500, 502, 503, 504) and attempt < 2:
+                    # The write may have reached GitHub before the gateway
+                    # failed. Reload its SHA and merge before retrying.
+                    time.sleep(2 ** attempt)
+                    continue
+                # urllib's default exception hides GitHub's validation reason.
+                # Report only error metadata, never the request or state data.
+                try:
+                    error = json.loads(exc.read())
+                except (ValueError, OSError):
+                    error = {}
+                if isinstance(error, dict):
+                    detail = {
+                        "message": error.get("message", ""),
+                        "errors": error.get("errors", []),
+                        "upload_base64_bytes": len(body["content"]),
+                    }
+                    # GitHub can echo invalid values; do not log those.
+                    if isinstance(detail["errors"], list):
+                        detail["errors"] = [
+                            {key: item[key] for key in ("resource", "field", "code", "message") if key in item}
+                            for item in detail["errors"] if isinstance(item, dict)
+                        ]
+                    else:
+                        detail["errors"] = []
+                    summary = json.dumps(detail, ensure_ascii=True)
+                    for sensitive in (self.token, self.repo, self.path):
+                        if sensitive:
+                            summary = summary.replace(sensitive, "[redacted]")
+                    exc.msg = f"{exc.reason}; GitHub validation: {summary[:1500]}"
                 raise
 
 
