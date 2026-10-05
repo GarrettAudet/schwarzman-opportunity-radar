@@ -159,7 +159,7 @@ jobs:
           if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
             python scripts/run_weekly_digest.py --root . --send --respect-schedule --from-state
           elif [ "${MANUAL_TASK}" = "weekly-send" ]; then
-            python scripts/run_weekly_digest.py --root . --send --force --from-state
+            python scripts/run_weekly_digest.py --root . --send --from-state
           else
             python scripts/run_weekly_digest.py --root . --from-state
           fi
