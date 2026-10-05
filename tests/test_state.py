@@ -84,6 +84,26 @@ class GithubJsonStoreTests(unittest.TestCase):
         saved = json.loads(base64.b64decode(requests[1]["content"]))
         self.assertEqual(set(saved["sent_jobs"]), {"ours", "other"})
 
+    def test_save_recovers_from_gateway_error_using_latest_sha(self) -> None:
+        store = GithubJsonStore("owner/repo", "state.json", "token", user_agent="test")
+        error = urllib.error.HTTPError("https://api.github.com", 502, "Bad Gateway", {}, io.BytesIO(b"{}"))
+        with patch.object(store, "load_with_sha", side_effect=[({}, "old"), ({"sent_jobs": {"other": {}}}, "new")]), patch("urllib.request.urlopen", side_effect=[error, FakeResponse("{}")]) as urlopen, patch("opportunity_radar.state.time.sleep") as sleep:
+            store.save({"sent_jobs": {"ours": {}}})
+        body = json.loads(urlopen.call_args.args[0].data)
+        self.assertEqual(body["sha"], "new")
+        self.assertEqual(set(json.loads(base64.b64decode(body["content"]))["sent_jobs"]), {"other", "ours"})
+        sleep.assert_called_once_with(1)
+
+    def test_save_stops_after_three_gateway_failures(self) -> None:
+        store = GithubJsonStore("owner/repo", "state.json", "token", user_agent="test")
+        errors = [urllib.error.HTTPError("https://api.github.com", 502, "Bad Gateway", {}, io.BytesIO(b'{"message":"Server Error"}')) for _ in range(3)]
+        with patch.object(store, "load_with_sha", return_value=({}, "sha")), patch("urllib.request.urlopen", side_effect=errors) as urlopen, patch("opportunity_radar.state.time.sleep") as sleep:
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                store.save({})
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn("Server Error", str(caught.exception))
+
     def test_load_with_sha_decodes_small_contents_api_file(self) -> None:
         payload = {"version": 1, "seen_jobs": {}}
         encoded = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")

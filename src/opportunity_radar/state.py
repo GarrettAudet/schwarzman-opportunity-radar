@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -149,6 +150,11 @@ class GithubJsonStore:
             except urllib.error.HTTPError as exc:
                 if exc.code == 409 and attempt < 2:
                     continue
+                if exc.code in (500, 502, 503, 504) and attempt < 2:
+                    # The write may have reached GitHub before the gateway
+                    # failed. Reload its SHA and merge before retrying.
+                    time.sleep(2 ** attempt)
+                    continue
                 # urllib's default exception hides GitHub's validation reason.
                 # Report only error metadata, never the request or state data.
                 try:
@@ -159,6 +165,7 @@ class GithubJsonStore:
                     detail = {
                         "message": error.get("message", ""),
                         "errors": error.get("errors", []),
+                        "upload_base64_bytes": len(body["content"]),
                     }
                     # GitHub can echo invalid values; do not log those.
                     if isinstance(detail["errors"], list):
