@@ -112,6 +112,25 @@ Use manual sends for smoke tests and one-off retries:
 
 `all-preview` and `weekly-preview` are deliberately safe: they build previews but never email the group.
 
+## If Postings Stop
+
+Check the **OpportunityRadar schedule** Actions page first. GitHub automatically
+disables scheduled workflows in public repositories after 60 days without repository
+activity. Updates in the separate private state repository do not keep this public
+repository active. If the page reports inactivity, click **Enable workflow**.
+
+Then run `discovery` and confirm it finishes with `State mutated: True`, followed by
+`weekly-preview` to inspect the available jobs before a manual send. A green scheduled
+run can simply mean `outside_configured_send_window`; it does not prove email delivery.
+Look for `Recipients sent: 1/1` in a send run, and confirm Google Group delivery separately.
+
+If discovery fails in `GithubJsonStore.save`, inspect the HTTP status and GitHub error
+details. State uploads use compact JSON and retry temporary server failures up to three
+attempts. A persistent validation error needs investigation before retrying delivery.
+
+See [GitHub's workflow enable/disable documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)
+for the inactivity policy and recovery controls.
+
 ## State And Config Files
 
 Local development reads from files under `data/` by default. Production can read runtime files from a private GitHub state repo.
